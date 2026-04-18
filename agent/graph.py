@@ -1,7 +1,7 @@
 import os
 from langgraph.graph import StateGraph, END
 from agent.state import AgentState
-from agent.tools import clone_isolated_workspace, execute_xcodebuild, read_workspace_file, write_workspace_file, post_github_comment
+from agent.tools import clone_isolated_workspace, execute_xcodebuild, read_workspace_file, write_workspace_file, read_workspace_file_lines, patch_workspace_file, post_github_comment
 from agent.llm_factory import get_llm
 from pydantic import BaseModel, Field
 from typing import List
@@ -114,19 +114,36 @@ def blueprint_presentation_node(state: AgentState):
 def coder_node(state: AgentState):
     llm = get_llm(role="coding")
     workspace_path = state.get("workspace_path")
+    blueprint = state.get("blueprint", {})
     
-    # Bind the filesystem tools to the LLM
-    tools = [read_workspace_file, write_workspace_file]
+    # Bind the full surgical toolkit to the LLM:
+    # - read_workspace_file: quick full-file reads for small files
+    # - read_workspace_file_lines: numbered line ranges for large files (pre-patch recon)
+    # - write_workspace_file: creating brand new files only
+    # - patch_workspace_file: surgical line-range replacement on existing files
+    tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file]
     llm_with_tools = llm.bind_tools(tools)
     
-    prompt = f"You are tasked with fixing this issue: {state.get('instructions')}\nUse your tools to read files and write the fixes in workspace: {workspace_path}"
+    prompt = f"""You are the Lios Coder Agent working in workspace: {workspace_path}
+
+Your task: {state.get('instructions')}
+
+Blueprint:
+{blueprint}
+
+IMPORTANT RULES:
+1. For EXISTING files: First use `read_workspace_file_lines` to view the target area with line numbers.
+   Then use `patch_workspace_file` to surgically replace ONLY the lines that need changing.
+   NEVER rewrite an entire existing file with write_workspace_file.
+2. For NEW files: Use `write_workspace_file` to create them.
+3. Always create test files listed in the blueprint's files_to_test."""
     
     # Inject compiler errors if this is a feedback loop
     if state.get("compiler_errors"):
-        prompt += f"\n\nWARNING. PREVIOUS BUILD FAILED WITH ERRORS:\n{state.get('compiler_errors')[-1]}\nPlease use your tools to fix these compile errors."
+        prompt += f"\n\n🚨 PREVIOUS BUILD FAILED WITH ERRORS:\n{state.get('compiler_errors')[-1]}\nUse read_workspace_file_lines to find the broken lines, then patch_workspace_file to fix them."
         
     result = llm_with_tools.invoke(prompt)
-    return {"history": ["Coding Step Complete (Code modifications requested via AI tool binding)."]}
+    return {"history": ["Coding Step Complete (Surgical patching via tool binding)."]}
 
 def validator_node(state: AgentState):
     workspace_path = state.get("workspace_path")

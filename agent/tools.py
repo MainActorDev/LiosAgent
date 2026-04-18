@@ -63,7 +63,7 @@ def read_workspace_file(workspace_path: str, file_relative_path: str) -> str:
 def write_workspace_file(workspace_path: str, file_relative_path: str, content: str) -> str:
     """
     Overwrites or creates a file inside the isolated workspace with the provided content.
-    The agent should use this to apply coding modifications.
+    Use this ONLY for creating brand new files. For modifying existing files, use patch_workspace_file instead.
     """
     full_path = os.path.join(workspace_path, file_relative_path)
     
@@ -76,6 +76,72 @@ def write_workspace_file(workspace_path: str, file_relative_path: str, content: 
         return f"Successfully wrote to: {file_relative_path}"
     except Exception as e:
         return f"Error writing file: {str(e)}"
+
+@tool
+def read_workspace_file_lines(workspace_path: str, file_relative_path: str, start_line: int = 1, end_line: int = 50) -> str:
+    """
+    Read a specific range of lines from a file, with line numbers prepended.
+    This is the preferred way to explore large files before patching.
+    Use this instead of read_workspace_file when the file might be large (>100 lines).
+    """
+    full_path = os.path.join(workspace_path, file_relative_path)
+    if not os.path.exists(full_path):
+        return f"Error: File '{file_relative_path}' not found in workspace."
+        
+    try:
+        with open(full_path, "r") as f:
+            all_lines = f.readlines()
+        
+        total = len(all_lines)
+        start_line = max(1, start_line)
+        end_line = min(total, end_line)
+        
+        numbered = []
+        for i in range(start_line - 1, end_line):
+            numbered.append(f"{i + 1}: {all_lines[i].rstrip()}")
+        
+        header = f"[{file_relative_path}] Lines {start_line}-{end_line} of {total} total"
+        return header + "\n" + "\n".join(numbered)
+    except Exception as e:
+        return f"Error reading file lines: {str(e)}"
+
+@tool
+def patch_workspace_file(workspace_path: str, file_relative_path: str, start_line: int, end_line: int, new_content: str) -> str:
+    """
+    Surgically replace lines start_line through end_line (inclusive, 1-indexed) with new_content.
+    This is the PREFERRED tool for modifying existing files. It prevents hallucination
+    by only touching the exact lines that need to change, leaving the rest of the file untouched.
+    
+    Steps: 
+    1. First use read_workspace_file_lines to see the target area with line numbers.
+    2. Then call this tool with the exact start_line and end_line to replace.
+    """
+    full_path = os.path.join(workspace_path, file_relative_path)
+    if not os.path.exists(full_path):
+        return f"Error: File '{file_relative_path}' not found."
+        
+    try:
+        with open(full_path, "r") as f:
+            lines = f.readlines()
+        
+        total = len(lines)
+        if start_line < 1 or end_line > total or start_line > end_line:
+            return f"Error: Invalid line range {start_line}-{end_line}. File has {total} lines."
+        
+        # Ensure new_content ends with newline for clean splicing
+        if new_content and not new_content.endswith("\n"):
+            new_content += "\n"
+        
+        # Splice: keep lines before start, inject new content, keep lines after end
+        new_lines = lines[:start_line - 1] + [new_content] + lines[end_line:]
+        
+        with open(full_path, "w") as f:
+            f.writelines(new_lines)
+        
+        new_total = len(new_lines)
+        return f"Patched {file_relative_path}: replaced lines {start_line}-{end_line} ({end_line - start_line + 1} lines removed, new content injected). File now has {new_total} lines."
+    except Exception as e:
+        return f"Error patching file: {str(e)}"
 
 def prepare_project_structure(workspace_path: str):
     if os.path.exists(os.path.join(workspace_path, "project.yml")):
