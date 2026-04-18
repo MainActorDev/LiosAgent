@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Initialize FastAPI
-fastapi_app = FastAPI(title="Agentic Coding Orchestrator")
+fastapi_app = FastAPI(title="Lios-Agent")
 
 # Initialize Slack App
 # Note: Requires SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET in .env
@@ -120,7 +120,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
 @fastapi_app.get("/health")
 def health_check():
     """Simple health check endpoint"""
-    return {"status": "healthy", "service": "ios-agent-orchestrator"}
+    return {"status": "healthy", "service": "Lios-Agent"}
 
 if __name__ == "__main__":
     import uvicorn
