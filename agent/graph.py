@@ -38,11 +38,43 @@ def initialize_workspace_node(state: AgentState):
         "history": [f"Initialized workspace at {actual_path}"]
     }
 
+async def context_aggregator_node(state: AgentState):
+    from agent.mcp_clients import MCPManager
+    from langgraph.prebuilt import create_react_agent
+    
+    llm = get_llm(role="planning")
+    workspace_path = state.get("workspace_path")
+    instructions = state.get("instructions", "")
+    
+    manager = MCPManager()
+    tools = await manager.connect_and_get_tools(workspace_path)
+    
+    if not tools:
+        return {"mcp_context": "No external MCP context available.", "history": ["Context Aggregation Node skipped (No tools found)."]}
+        
+    try:
+        # Create a tiny internal autonomous loop so the LLM can query Serena/XcodeBuild tools fully
+        agent_executor = create_react_agent(llm, tools=tools)
+        prompt = f"Use your tools to find deep context related to this issue:\n{instructions}\n\nSearch codebase symbols or legacy patterns. Return a thorough technical summary."
+        
+        result = await agent_executor.ainvoke({"messages": [("user", prompt)]})
+        context_data = result["messages"][-1].content
+    except Exception as e:
+        context_data = f"Failed to execute context gathering: {e}"
+    finally:
+        await manager.cleanup()
+        
+    return {
+        "mcp_context": context_data,
+        "history": ["Context Aggregator Node executed. External tools queried."]
+    }
+
 def planner_node(state: AgentState):
     llm = get_llm(role="planning").with_structured_output(FeatureBlueprint)
     instructions = state.get("instructions", "")
+    mcp_context = state.get("mcp_context", "None")
     
-    prompt = f"You are the Lios Architect Agent. Design a strict architecture plan for this issue:\n{instructions}\nEnsure you mandate TDD by defining the XCTest suites."
+    prompt = f"You are the Lios Architect Agent. Design a strict architecture plan for this issue:\n{instructions}\n\nExternal System Context:\n{mcp_context}\n\nEnsure you mandate TDD by defining the XCTest suites."
     blueprint: FeatureBlueprint = llm.invoke(prompt)
     
     return {
@@ -201,6 +233,7 @@ def build_graph():
     
     graph.add_node("vetting", issue_vetting_node)
     graph.add_node("initialize", initialize_workspace_node)
+    graph.add_node("context_aggregator", context_aggregator_node)
     graph.add_node("planner", planner_node)
     graph.add_node("blueprint_presentation", blueprint_presentation_node)
     graph.add_node("coder", coder_node)
@@ -215,7 +248,8 @@ def build_graph():
         "end": END
     })
     
-    graph.add_edge("initialize", "planner")
+    graph.add_edge("initialize", "context_aggregator")
+    graph.add_edge("context_aggregator", "planner")
     graph.add_edge("planner", "blueprint_presentation")
     graph.add_edge("blueprint_presentation", "coder")
     graph.add_edge("coder", "validator")
