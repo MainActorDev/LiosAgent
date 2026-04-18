@@ -4,50 +4,67 @@ Lios-Agent is an autonomous, agentic coding platform specifically engineered for
 
 ## 🏗 Architecture
 
-The platform operates purely via Slack and GitHub Webhooks, ensuring developers never need to leave their standard communication channels to trigger autonomous operations.
-
-### LangGraph Pipeline
+The platform operates purely via Slack and GitHub Webhooks, ensuring developers never need to leave their standard communication channels to trigger autonomous operations. The pipeline is organized into **3 main phases**, each containing specialized sub-nodes:
 
 ```
-Issue Opened → Vetting → Workspace Init → Context Aggregator (MCP)
-    → Planner (Pydantic Blueprint) → Blueprint Presentation (HITL)
-    → Router → [UI Sub-Agent | Network Sub-Agent | General Coder]
-    → Validator (RTK Build) → UI Vision Check (SimCtl + Vision LLM)
-    → Push PR
+┌─────────────────────────────────────────────────────────────────────┐
+│  📐 PLANNING PHASE                                                  │
+│    Vetting → Workspace Init → Context Aggregator → Planner → HITL  │
+├─────────────────────────────────────────────────────────────────────┤
+│  ⚡ EXECUTION PHASE                                                 │
+│    Router → [ UI Sub-Agent | Network Sub-Agent | General Coder ]   │
+├─────────────────────────────────────────────────────────────────────┤
+│  🔍 REVIEW PHASE                                                    │
+│    Build Validator → UI Vision Check → Push PR → PR Review Loop    │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Node Descriptions
+---
 
-| Node | Purpose |
-|------|---------|
-| **Vetting** | Filters vague/spam issues. Posts a clarification comment if the issue lacks context. |
-| **Context Aggregator** | Async node that queries Serena MCP + XcodeBuildMCP for codebase symbols and patterns. |
-| **Planner** | Outputs a strict Pydantic `FeatureBlueprint` JSON with mandatory `files_to_test` (TDD). |
-| **Blueprint Presentation** | Posts the blueprint as Markdown to the GitHub Issue. Halts until a human comments **"Approve"**. |
-| **Router** | Analyzes the blueprint and dispatches to specialized sub-agents based on domain classification. |
-| **UI Sub-Agent** | Specialist for SwiftUI/UIKit Views, Construkt tokens, Screens, and Components. |
-| **Network Sub-Agent** | Specialist for API Services, Repositories, DTOs, and Data Models. |
+### 📐 Phase 1: Planning
+
+Gathers intelligence, understands the task, and produces an architectural blueprint before any code is written.
+
+| Sub-Node | Purpose |
+|----------|---------|
+| **Vetting** | Filters vague/spam issues. Posts a GitHub clarification comment if the issue lacks context; otherwise marks it `ACTIONABLE`. |
+| **Workspace Init** | Clones the target repo into an isolated APFS Copy-on-Write sandbox. Checks out the agent's working branch (`ios-agent-issue-{id}`). |
+| **Context Aggregator** | Async node that queries **Serena MCP** (codebase symbols) and **XcodeBuildMCP** (build settings) to inject real architectural awareness into the planner prompt. |
+| **Planner** | Consumes MCP context and outputs a strict Pydantic `FeatureBlueprint` JSON with mandatory `files_to_test` (enforcing TDD). |
+| **Blueprint Presentation** *(HITL)* | Posts the blueprint as Markdown to the GitHub Issue. **Halts** the pipeline until a human comments **"Approve"**. |
+
+---
+
+### ⚡ Phase 2: Execution
+
+Writes code through domain-specialized sub-agents using **surgical line-range patching** instead of full-file rewrites.
+
+| Sub-Node | Purpose |
+|----------|---------|
+| **Router** | Analyzes the blueprint's architecture components and file paths to classify the task into domains (`ui`, `network`, or `general`), then dispatches to the appropriate sub-agent(s). |
+| **UI Sub-Agent** | Specialist for SwiftUI/UIKit Views, Construkt design tokens, Screens, and Components. Uses a focused system prompt scoped to the view layer. |
+| **Network Sub-Agent** | Specialist for API Services, Repositories, DTOs, and Data Models. Follows clean architecture patterns (Repository → Service → DTO → Domain Model). |
 | **General Coder** | Fallback for tasks that don't fit UI or Network domains. |
-| **Validator** | Runs `xcodebuild` through RTK for token-compressed logs. 3-strike rollback on failure. |
-| **UI Vision Check** | Boots iOS Simulator, captures a screenshot, and validates it against design constraints via a Vision LLM. Only activates for UI-tagged blueprints. |
-| **Push** | Commits and pushes the agent's branch to GitHub as a PR. |
 
-### Surgical Code Patching
+> If both UI and Network domains are detected, they run **sequentially** (UI first → Network second) before reaching the Review phase.
 
-The agent uses **line-range patching** instead of full-file rewrites to prevent hallucination on large files:
+**Surgical Code Patching Tools:**
+- `read_workspace_file_lines` — Reads a specific line range with line numbers prepended (pre-patch recon).
+- `patch_workspace_file` — Surgically replaces only the target line range, leaving the rest untouched.
+- `write_workspace_file` — Reserved exclusively for creating **new** files.
 
-1. `read_workspace_file_lines` — Reads a specific line range with line numbers prepended.
-2. `patch_workspace_file` — Surgically replaces only the target line range, leaving the rest untouched.
-3. `write_workspace_file` — Reserved exclusively for creating **new** files.
+---
 
-### PR Review Loop
+### 🔍 Phase 3: Review
 
-When a human developer leaves an inline code review comment on the agent's PR, the orchestrator automatically:
-1. Clones the existing PR branch into a fresh sandbox.
-2. Re-triggers the Router → Sub-Agent → Validator pipeline with the review comment as instructions.
-3. Pushes the fix directly to the open PR.
+Validates the generated code against the compiler, the design system, and human feedback.
 
-This is powered by the `pull_request_review_comment` GitHub webhook handler in `main.py`.
+| Sub-Node | Purpose |
+|----------|---------|
+| **Build Validator** | Runs `xcodebuild` through **RTK** for token-compressed logs (~90% reduction). Implements a **3-strike policy**: after 3 failed retries, triggers `git clean -fd && git checkout -- .` to purge corrupted state. |
+| **UI Vision Check** | Boots the iOS Simulator via `xcrun simctl`, captures a screenshot, and sends it to a **Vision LLM** alongside design constraints for PASS/FAIL evaluation. Only activates when the blueprint contains UI-tagged components. |
+| **Push** | Commits the agent's changes and pushes the branch to GitHub as a pull request. |
+| **PR Review Loop** | When a human developer leaves an **inline code review comment** on the agent's PR, the orchestrator clones the PR branch, re-triggers the Execution → Review pipeline with the comment as instructions, and pushes the fix directly to the existing PR. |
 
 ## 🚀 Quick Start & Installation
 
