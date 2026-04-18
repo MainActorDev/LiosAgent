@@ -1,7 +1,7 @@
 import os
 from langgraph.graph import StateGraph, END
 from agent.state import AgentState
-from agent.tools import clone_isolated_workspace, execute_xcodebuild, read_workspace_file, write_workspace_file, read_workspace_file_lines, patch_workspace_file, post_github_comment
+from agent.tools import clone_isolated_workspace, execute_xcodebuild, read_workspace_file, write_workspace_file, read_workspace_file_lines, patch_workspace_file, post_github_comment, capture_simulator_screenshot, validate_ui_with_vision
 from agent.llm_factory import get_llm
 from pydantic import BaseModel, Field
 from typing import List
@@ -196,9 +196,9 @@ def validator_node(state: AgentState):
 
 def should_retry(state: AgentState) -> str:
     """Conditional Edge logic: decides if we go back to CoderNode or give up."""
-    # Break out to approval phase if successful
+    # Break out to UI validation phase if build succeeded
     if "PASSED" in state.get("history", [])[-1]:
-        return "checkout"
+        return "ui_check"
         
     # Safeguard against infinite loops and clean corrupted states
     if state.get("retries_count", 0) >= 3:
@@ -208,9 +208,60 @@ def should_retry(state: AgentState) -> str:
             print("🚨 Max retries hit! Executing RTK State Rollback...")
             subprocess.run(["rtk", "git", "clean", "-fd"], cwd=workspace_path, check=False)
             subprocess.run(["rtk", "git", "checkout", "--", "."], cwd=workspace_path, check=False)
-        return "checkout"
+        return "ui_check"
         
     return "coder" # Feedback loop: go back to coding to fix the compiler error
+
+def ui_vision_validator_node(state: AgentState):
+    """
+    Conditionally runs visual UI verification after a successful build.
+    Only activates if the FeatureBlueprint contains UI-related architecture components.
+    """
+    blueprint = state.get("blueprint", {})
+    workspace_path = state.get("workspace_path")
+    arch_components = blueprint.get("architecture_components", [])
+    
+    # Check if this feature involves UI work
+    ui_keywords = ["SwiftUI", "UIKit", "View", "Construkt", "UI", "Screen", "Component"]
+    has_ui = any(kw.lower() in comp.lower() for comp in arch_components for kw in ui_keywords)
+    
+    if not has_ui:
+        return {"history": ["UI Vision Check: Skipped (no UI components in blueprint)."]}
+    
+    # Capture a simulator screenshot
+    screenshot_result = capture_simulator_screenshot(workspace_path)
+    
+    if screenshot_result.startswith("Error") or screenshot_result.startswith("Simulator"):
+        # Screenshot capture failed — don't block the pipeline, just warn
+        return {"history": [f"UI Vision Check: Screenshot capture failed ({screenshot_result}). Proceeding anyway."]}
+    
+    # Build design constraints from the blueprint
+    design_constraints = f"Architecture components: {', '.join(arch_components)}\n"
+    design_constraints += f"Feature: {blueprint.get('feature_name', 'Unknown')}\n"
+    design_constraints += "Ensure compliance with Construkt design tokens and MVVM layout patterns."
+    
+    # Run the vision validation
+    vision_result = validate_ui_with_vision(screenshot_result, design_constraints)
+    
+    if vision_result["passed"]:
+        return {"history": [f"UI Vision Check: PASSED. {vision_result['feedback']}"]}
+    else:
+        # Feed visual feedback back to the coder as compiler errors for the retry loop
+        errors = state.get("compiler_errors", [])
+        errors.append(f"UI VISION FAILURE: {vision_result['feedback']}")
+        retries = state.get("retries_count", 0) + 1
+        return {
+            "compiler_errors": errors,
+            "retries_count": retries,
+            "history": [f"UI Vision Check: FAILED. {vision_result['feedback']}"]
+        }
+
+def should_proceed_from_ui_check(state: AgentState) -> str:
+    """After UI vision check, decide whether to push or loop back to coder."""
+    last_history = state.get("history", [""])[-1]
+    if "FAILED" in last_history and state.get("retries_count", 0) < 3:
+        return "coder"
+    return "push"
 
 def issue_vetting_node(state: AgentState):
     llm = get_llm(role="planning")
@@ -255,6 +306,7 @@ def build_graph():
     graph.add_node("blueprint_presentation", blueprint_presentation_node)
     graph.add_node("coder", coder_node)
     graph.add_node("validator", validator_node)
+    graph.add_node("ui_vision_check", ui_vision_validator_node)
     graph.add_node("push", lambda state: {"history": ["Code pushed and PR opened."]}) 
     
     # Wiring the flow
@@ -273,8 +325,14 @@ def build_graph():
     
     # Conditional logic out of the validator
     graph.add_conditional_edges("validator", should_retry, {
-        "coder": "coder",     # Loop back
-        "checkout": "push"    # Proceed to Approval -> Push
+        "coder": "coder",        # Loop back for compile errors
+        "ui_check": "ui_vision_check"  # Build passed, run visual check
+    })
+    
+    # Conditional logic out of the UI vision check
+    graph.add_conditional_edges("ui_vision_check", should_proceed_from_ui_check, {
+        "coder": "coder",     # Loop back for UI fixes
+        "push": "push"        # Everything passed
     })
     
     graph.add_edge("push", END)

@@ -223,3 +223,110 @@ def post_github_comment(repo_full_name: str, issue_number: int, installation_id:
         return "Comment posted successfully."
     except Exception as e:
         return f"Error posting GitHub comment: {str(e)}"
+
+def capture_simulator_screenshot(workspace_path: str, scheme: str = "App") -> str:
+    """
+    Boots the iOS Simulator, builds and launches the app, then captures a screenshot.
+    Returns the absolute path to the screenshot PNG file.
+    """
+    screenshot_path = os.path.join(workspace_path, ".lios_screenshot.png")
+    
+    try:
+        # 1. Find an available simulator device
+        result = subprocess.run(
+            ["xcrun", "simctl", "list", "devices", "available", "-j"],
+            capture_output=True, text=True
+        )
+        import json
+        devices = json.loads(result.stdout)
+        
+        # Find the first booted device, or boot one
+        target_udid = None
+        for runtime, device_list in devices.get("devices", {}).items():
+            if "iOS" in runtime:
+                for device in device_list:
+                    if device.get("state") == "Booted":
+                        target_udid = device["udid"]
+                        break
+                    elif not target_udid and device.get("isAvailable"):
+                        target_udid = device["udid"]
+                if target_udid:
+                    break
+        
+        if not target_udid:
+            return "Error: No available iOS simulator device found."
+        
+        # 2. Boot if not already booted
+        subprocess.run(["xcrun", "simctl", "boot", target_udid], check=False, capture_output=True)
+        
+        # 3. Build for simulator and install
+        subprocess.run(
+            ["xcodebuild", "build", "-scheme", scheme,
+             "-destination", f"platform=iOS Simulator,id={target_udid}",
+             "-derivedDataPath", os.path.join(workspace_path, "DerivedData")],
+            cwd=workspace_path, check=True, capture_output=True, text=True
+        )
+        
+        # 4. Wait for simulator to settle then capture
+        import time
+        time.sleep(3)
+        subprocess.run(
+            ["xcrun", "simctl", "io", target_udid, "screenshot", screenshot_path],
+            check=True, capture_output=True
+        )
+        
+        return screenshot_path
+    except subprocess.CalledProcessError as e:
+        return f"Simulator capture failed: {e.stderr if e.stderr else str(e)}"
+    except Exception as e:
+        return f"Simulator capture error: {str(e)}"
+
+def validate_ui_with_vision(screenshot_path: str, design_constraints: str) -> dict:
+    """
+    Sends a simulator screenshot to a Vision-capable LLM alongside design constraints
+    (e.g., Figma tokens, color palette rules) for automated UI/UX compliance checking.
+    
+    Returns a dict with 'passed' (bool) and 'feedback' (str).
+    """
+    if not os.path.exists(screenshot_path):
+        return {"passed": False, "feedback": f"Screenshot not found at {screenshot_path}"}
+    
+    try:
+        import base64
+        from agent.llm_factory import get_llm
+        from langchain_core.messages import HumanMessage
+        
+        # Encode screenshot as base64 for multimodal input
+        with open(screenshot_path, "rb") as img_file:
+            image_data = base64.b64encode(img_file.read()).decode("utf-8")
+        
+        llm = get_llm(role="planning")  # Vision-capable model needed
+        
+        message = HumanMessage(
+            content=[
+                {"type": "text", "text": f"""You are a Senior iOS UI/UX reviewer.
+                
+Analyze this simulator screenshot against the following design constraints:
+{design_constraints}
+
+Evaluate:
+1. Color palette compliance (are the correct design tokens used?)
+2. Layout structure (spacing, alignment, hierarchy)
+3. Typography consistency
+4. Component completeness (are all required UI elements present?)
+
+Respond with EXACTLY one of:
+- "PASS: <brief confirmation>" if the UI meets all constraints
+- "FAIL: <specific issues found>" if there are violations"""},
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_data}"}}
+            ]
+        )
+        
+        result = llm.invoke([message])
+        response = result.content.strip()
+        
+        passed = response.upper().startswith("PASS")
+        return {"passed": passed, "feedback": response}
+    except Exception as e:
+        return {"passed": False, "feedback": f"Vision validation error: {str(e)}"}
+
