@@ -111,16 +111,137 @@ def blueprint_presentation_node(state: AgentState):
         
     return {"history": ["Blueprint posted to GitHub. Suspended thread awaiting approval."]}
 
-def coder_node(state: AgentState):
+# ---------------------------------------------------------------------------
+# Sub-Agent Execution Swarm
+# ---------------------------------------------------------------------------
+
+def _classify_blueprint_domains(blueprint: dict) -> list:
+    """Inspect the FeatureBlueprint to determine which sub-agents are needed."""
+    arch = [c.lower() for c in blueprint.get("architecture_components", [])]
+    all_files = (blueprint.get("files_to_create", []) +
+                 blueprint.get("files_to_modify", []) +
+                 blueprint.get("files_to_test", []))
+    file_paths = [f.get("filepath", "").lower() if isinstance(f, dict) else str(f).lower() for f in all_files]
+    
+    domains = []
+    
+    # UI detection
+    ui_keywords = ["swiftui", "uikit", "view", "construkt", "screen", "component", "ui"]
+    if (any(kw in c for c in arch for kw in ui_keywords) or
+        any(kw in fp for fp in file_paths for kw in ["view", "screen", "cell", "component"])):
+        domains.append("ui")
+    
+    # Network / Data detection
+    net_keywords = ["api", "network", "repository", "service", "endpoint", "data", "model"]
+    if (any(kw in c for c in arch for kw in net_keywords) or
+        any(kw in fp for fp in file_paths for kw in ["service", "repository", "api", "model", "dto"])):
+        domains.append("network")
+    
+    # Fallback: if nothing matched, treat as general
+    if not domains:
+        domains.append("general")
+    
+    return domains
+
+def router_node(state: AgentState):
+    """Analyzes the blueprint and determines which sub-agents to activate."""
+    blueprint = state.get("blueprint", {})
+    domains = _classify_blueprint_domains(blueprint)
+    return {
+        "active_subagents": domains,
+        "history": [f"Router: Dispatching to sub-agents: {', '.join(domains)}"]
+    }
+
+def should_route_subagent(state: AgentState) -> str:
+    """Conditional edge: route to the appropriate sub-agent based on classification."""
+    domains = state.get("active_subagents", ["general"])
+    if "ui" in domains:
+        return "ui_subagent"
+    elif "network" in domains:
+        return "network_subagent"
+    return "general_coder"
+
+def ui_subagent_node(state: AgentState):
+    """Specialized sub-agent focused exclusively on UI/View layer code."""
     llm = get_llm(role="coding")
     workspace_path = state.get("workspace_path")
     blueprint = state.get("blueprint", {})
     
-    # Bind the full surgical toolkit to the LLM:
-    # - read_workspace_file: quick full-file reads for small files
-    # - read_workspace_file_lines: numbered line ranges for large files (pre-patch recon)
-    # - write_workspace_file: creating brand new files only
-    # - patch_workspace_file: surgical line-range replacement on existing files
+    tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file]
+    llm_with_tools = llm.bind_tools(tools)
+    
+    prompt = f"""You are the Lios UI Sub-Agent, a specialist in iOS View layer code.
+You ONLY work on SwiftUI Views, UIKit ViewControllers, Construkt design tokens, and UI components.
+
+Workspace: {workspace_path}
+Task: {state.get('instructions')}
+
+Blueprint:
+{blueprint}
+
+Focus ONLY on files related to Views, Screens, Components, and Cells.
+Use Construkt design tokens (bgPrimary, textPrimary, etc.) for all colors and spacing.
+
+RULES:
+1. For EXISTING files: use `read_workspace_file_lines` then `patch_workspace_file`.
+2. For NEW files: use `write_workspace_file`.
+3. Create all test files from the blueprint's files_to_test that relate to UI."""
+    
+    if state.get("compiler_errors"):
+        prompt += f"\n\n🚨 PREVIOUS ERRORS:\n{state.get('compiler_errors')[-1]}\nFix only UI-related errors."
+        
+    result = llm_with_tools.invoke(prompt)
+    
+    # Chain to network sub-agent if both domains are active
+    domains = state.get("active_subagents", [])
+    next_history = "UI Sub-Agent Complete."
+    return {"history": [next_history]}
+
+def should_chain_after_ui(state: AgentState) -> str:
+    """After UI sub-agent, check if network sub-agent also needs to run."""
+    domains = state.get("active_subagents", [])
+    if "network" in domains:
+        return "network_subagent"
+    return "validator"
+
+def network_subagent_node(state: AgentState):
+    """Specialized sub-agent focused exclusively on API/Network/Data layer code."""
+    llm = get_llm(role="coding")
+    workspace_path = state.get("workspace_path")
+    blueprint = state.get("blueprint", {})
+    
+    tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file]
+    llm_with_tools = llm.bind_tools(tools)
+    
+    prompt = f"""You are the Lios Network Sub-Agent, a specialist in iOS data layer code.
+You ONLY work on API Services, Repositories, Data Models, DTOs, and Networking logic.
+
+Workspace: {workspace_path}
+Task: {state.get('instructions')}
+
+Blueprint:
+{blueprint}
+
+Focus ONLY on files related to Services, Repositories, Models, APIs, and DTOs.
+Follow clean architecture patterns: Repository -> Service -> DTO -> Domain Model.
+
+RULES:
+1. For EXISTING files: use `read_workspace_file_lines` then `patch_workspace_file`.
+2. For NEW files: use `write_workspace_file`.
+3. Create all test files from the blueprint's files_to_test that relate to networking."""
+    
+    if state.get("compiler_errors"):
+        prompt += f"\n\n🚨 PREVIOUS ERRORS:\n{state.get('compiler_errors')[-1]}\nFix only data/network-related errors."
+        
+    result = llm_with_tools.invoke(prompt)
+    return {"history": ["Network Sub-Agent Complete."]}
+
+def general_coder_node(state: AgentState):
+    """Fallback general-purpose coder for tasks that don't fit UI or Network domains."""
+    llm = get_llm(role="coding")
+    workspace_path = state.get("workspace_path")
+    blueprint = state.get("blueprint", {})
+    
     tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file]
     llm_with_tools = llm.bind_tools(tools)
     
@@ -134,16 +255,14 @@ Blueprint:
 IMPORTANT RULES:
 1. For EXISTING files: First use `read_workspace_file_lines` to view the target area with line numbers.
    Then use `patch_workspace_file` to surgically replace ONLY the lines that need changing.
-   NEVER rewrite an entire existing file with write_workspace_file.
 2. For NEW files: Use `write_workspace_file` to create them.
 3. Always create test files listed in the blueprint's files_to_test."""
     
-    # Inject compiler errors if this is a feedback loop
     if state.get("compiler_errors"):
         prompt += f"\n\n🚨 PREVIOUS BUILD FAILED WITH ERRORS:\n{state.get('compiler_errors')[-1]}\nUse read_workspace_file_lines to find the broken lines, then patch_workspace_file to fix them."
         
     result = llm_with_tools.invoke(prompt)
-    return {"history": ["Coding Step Complete (Surgical patching via tool binding)."]}
+    return {"history": ["General Coder Complete (Surgical patching via tool binding)."]}
 
 def validator_node(state: AgentState):
     workspace_path = state.get("workspace_path")
@@ -304,7 +423,10 @@ def build_graph():
     graph.add_node("context_aggregator", context_aggregator_node)
     graph.add_node("planner", planner_node)
     graph.add_node("blueprint_presentation", blueprint_presentation_node)
-    graph.add_node("coder", coder_node)
+    graph.add_node("router", router_node)
+    graph.add_node("ui_subagent", ui_subagent_node)
+    graph.add_node("network_subagent", network_subagent_node)
+    graph.add_node("general_coder", general_coder_node)
     graph.add_node("validator", validator_node)
     graph.add_node("ui_vision_check", ui_vision_validator_node)
     graph.add_node("push", lambda state: {"history": ["Code pushed and PR opened."]}) 
@@ -320,18 +442,33 @@ def build_graph():
     graph.add_edge("initialize", "context_aggregator")
     graph.add_edge("context_aggregator", "planner")
     graph.add_edge("planner", "blueprint_presentation")
-    graph.add_edge("blueprint_presentation", "coder")
-    graph.add_edge("coder", "validator")
+    graph.add_edge("blueprint_presentation", "router")
     
-    # Conditional logic out of the validator
+    # Router dispatches to the correct sub-agent
+    graph.add_conditional_edges("router", should_route_subagent, {
+        "ui_subagent": "ui_subagent",
+        "network_subagent": "network_subagent",
+        "general_coder": "general_coder"
+    })
+    
+    # UI sub-agent chains to network if both are needed, otherwise goes to validator
+    graph.add_conditional_edges("ui_subagent", should_chain_after_ui, {
+        "network_subagent": "network_subagent",
+        "validator": "validator"
+    })
+    
+    graph.add_edge("network_subagent", "validator")
+    graph.add_edge("general_coder", "validator")
+    
+    # Conditional logic out of the validator (loops back to router on failure)
     graph.add_conditional_edges("validator", should_retry, {
-        "coder": "coder",        # Loop back for compile errors
+        "coder": "router",           # Loop back through router for targeted fixes
         "ui_check": "ui_vision_check"  # Build passed, run visual check
     })
     
     # Conditional logic out of the UI vision check
     graph.add_conditional_edges("ui_vision_check", should_proceed_from_ui_check, {
-        "coder": "coder",     # Loop back for UI fixes
+        "coder": "router",    # Loop back through router for UI fixes
         "push": "push"        # Everything passed
     })
     
@@ -340,6 +477,6 @@ def build_graph():
     # Attach memory so the graph can be paused waiting for Slack human approval
     from langgraph.checkpoint.memory import MemorySaver
     checkpointer = MemorySaver()
-    app = graph.compile(checkpointer=checkpointer, interrupt_before=["coder", "push"])
+    app = graph.compile(checkpointer=checkpointer, interrupt_before=["router", "push"])
     
     return app
