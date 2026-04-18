@@ -220,6 +220,71 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
                     
             background_tasks.add_task(resume_from_comment)
             
+    elif event_type == "pull_request_review_comment":
+        # A human developer left an inline code review comment on the agent's PR.
+        # We re-trigger the Coder -> Validator loop to address their feedback.
+        action = payload.get("action")
+        comment = payload.get("comment", {})
+        pull_request = payload.get("pull_request", {})
+        repository = payload.get("repository", {})
+        installation = payload.get("installation", {})
+        
+        if action == "created":
+            review_body = comment.get("body", "")
+            diff_hunk = comment.get("diff_hunk", "")
+            file_path = comment.get("path", "")
+            pr_number = str(pull_request.get("number"))
+            pr_branch = pull_request.get("head", {}).get("ref", "")
+            repo_url = repository.get("ssh_url")
+            repo_full_name = repository.get("full_name")
+            installation_id = str(installation.get("id", ""))
+            
+            def run_pr_review_fix():
+                try:
+                    from agent.graph import build_graph
+                    from agent.tools import clone_isolated_workspace
+                    import subprocess
+                    
+                    # 1. Clone workspace and checkout the existing PR branch
+                    task_id = f"pr-review-{pr_number}"
+                    clone_isolated_workspace(task_id, repo_url)
+                    workspace_path = os.path.join(os.path.dirname(__file__), ".workspaces", task_id)
+                    subprocess.run(["git", "fetch", "origin", pr_branch], cwd=workspace_path, check=True, capture_output=True)
+                    subprocess.run(["git", "checkout", pr_branch], cwd=workspace_path, check=True, capture_output=True)
+                    
+                    # 2. Build a focused graph execution with the review as instructions
+                    graph_app = build_graph()
+                    review_instructions = f"""PR Review Fix Request:
+File: {file_path}
+Diff Context:
+{diff_hunk}
+
+Reviewer Comment: {review_body}
+
+Fix the code in the file mentioned above based on the reviewer's feedback."""
+
+                    initial_state = {
+                        "task_id": task_id,
+                        "instructions": review_instructions,
+                        "repo_url": repo_url,
+                        "repo_full_name": repo_full_name,
+                        "installation_id": installation_id,
+                        "workspace_path": workspace_path,
+                        "current_branch": pr_branch,
+                        "history": [],
+                        "compiler_errors": [],
+                        "retries_count": 0,
+                        "mcp_context": ""
+                    }
+                    
+                    print(f"🔄 PR Review Loop triggered for PR #{pr_number} on {file_path}")
+                    config = {"configurable": {"thread_id": f"pr-review-{pr_number}"}}
+                    graph_app.invoke(initial_state, config=config)
+                except Exception as e:
+                    print(f"❌ PR Review Loop Error: {e}")
+                    
+            background_tasks.add_task(run_pr_review_fix)
+            
     return {"status": "ok", "event": event_type}
 
 @fastapi_app.get("/health")
