@@ -198,7 +198,28 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
                     print(f"❌ Core LangGraph Error: {e}")
                     
             background_tasks.add_task(run_agent_workflow)
+            
+    elif event_type == "issue_comment":
+        action = payload.get("action")
+        comment = payload.get("comment", {})
+        issue = payload.get("issue", {})
+        body = comment.get("body", "").strip()
+        issue_num = str(issue.get("number"))
+        
+        if action in ["created", "edited"] and body.lower() == "approve":
+            def resume_from_comment():
+                try:
+                    from agent.graph import build_graph
+                    graph_app = build_graph()
+                    config = {"configurable": {"thread_id": f"issue-{issue_num}"}}
                     
+                    print(f"🚀 Resuming LangGraph for Issue {issue_num} via GitHub comment approval")
+                    graph_app.invoke(None, config=config)
+                except Exception as e:
+                    print(f"❌ Core LangGraph Resume Error: {e}")
+                    
+            background_tasks.add_task(resume_from_comment)
+            
     return {"status": "ok", "event": event_type}
 
 @fastapi_app.get("/health")

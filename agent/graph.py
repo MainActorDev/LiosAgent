@@ -1,8 +1,27 @@
 import os
 from langgraph.graph import StateGraph, END
 from agent.state import AgentState
-from agent.tools import clone_isolated_workspace, execute_xcodebuild, read_workspace_file, write_workspace_file
+from agent.tools import clone_isolated_workspace, execute_xcodebuild, read_workspace_file, write_workspace_file, post_github_comment
 from agent.llm_factory import get_llm
+from pydantic import BaseModel, Field
+from typing import List
+
+class FileModification(BaseModel):
+    filepath: str = Field(description="Absolute path to the file.")
+    purpose: str = Field(description="Exact architectural reason this file requires creation/modification.")
+
+class FeatureBlueprint(BaseModel):
+    """The master architectural plan for the requested feature."""
+    feature_name: str = Field(description="Name of the feature being built.")
+    files_to_create: List[FileModification]
+    files_to_modify: List[FileModification]
+    files_to_test: List[FileModification] = Field(
+        description="Mandatory array of XCTest suites to enforce TDD. Must contain at least 1 test file."
+    )
+    architecture_components: List[str] = Field(
+        description="List of design tokens/architecture patterns utilized (e.g. Construkt.bgPrimary, MVVM)."
+    )
+
 
 def initialize_workspace_node(state: AgentState):
     task_id = state.get("task_id", "default_task")
@@ -20,13 +39,45 @@ def initialize_workspace_node(state: AgentState):
     }
 
 def planner_node(state: AgentState):
-    llm = get_llm(role="planning")
+    llm = get_llm(role="planning").with_structured_output(FeatureBlueprint)
     instructions = state.get("instructions", "")
     
-    prompt = f"You are Lios-Agent. Plan out how to fix this issue:\n{instructions}\n\nList the files that need modifying."
-    plan = llm.invoke(prompt)
+    prompt = f"You are the Lios Architect Agent. Design a strict architecture plan for this issue:\n{instructions}\nEnsure you mandate TDD by defining the XCTest suites."
+    blueprint: FeatureBlueprint = llm.invoke(prompt)
     
-    return {"history": [f"Planning Step Complete: {plan.content[:50]}..."]}
+    return {
+        "blueprint": blueprint.dict(),
+        "history": [f"Planning Step Complete: Generated FeatureBlueprint for {blueprint.feature_name}"]
+    }
+
+def blueprint_presentation_node(state: AgentState):
+    blueprint_dict = state.get("blueprint", {})
+    repo_full_name = state.get("repo_full_name")
+    task_id = state.get("task_id")
+    installation_id = state.get("installation_id")
+    
+    # Format the blueprint as a Github Markdown table
+    md = f"### 🏗️ Lios-Agent Architectural Blueprint: {blueprint_dict.get('feature_name', 'Feature')}\n\n"
+    
+    md += "**Files to Create:**\n"
+    for f in blueprint_dict.get("files_to_create", []):
+        md += f"- `{f['filepath']}`: {f['purpose']}\n"
+        
+    md += "\n**Files to Modify:**\n"
+    for f in blueprint_dict.get("files_to_modify", []):
+        md += f"- `{f['filepath']}`: {f['purpose']}\n"
+        
+    md += "\n**Files to Test (TDD Enforcement):**\n"
+    for f in blueprint_dict.get("files_to_test", []):
+        md += f"- `{f['filepath']}`: {f['purpose']}\n"
+        
+    md += f"\n**Architecture Components:** `{', '.join(blueprint_dict.get('architecture_components', []))}`\n\n"
+    md += "---\n*Please reply with **Approve** to execute this graph.*"
+    
+    if repo_full_name and installation_id:
+        post_github_comment(repo_full_name, task_id, installation_id, md)
+        
+    return {"history": ["Blueprint posted to GitHub. Suspended thread awaiting approval."]}
 
 def coder_node(state: AgentState):
     llm = get_llm(role="coding")
@@ -145,6 +196,7 @@ def build_graph():
     graph.add_node("vetting", issue_vetting_node)
     graph.add_node("initialize", initialize_workspace_node)
     graph.add_node("planner", planner_node)
+    graph.add_node("blueprint_presentation", blueprint_presentation_node)
     graph.add_node("coder", coder_node)
     graph.add_node("validator", validator_node)
     graph.add_node("push", lambda state: {"history": ["Code pushed and PR opened."]}) 
@@ -158,7 +210,8 @@ def build_graph():
     })
     
     graph.add_edge("initialize", "planner")
-    graph.add_edge("planner", "coder")
+    graph.add_edge("planner", "blueprint_presentation")
+    graph.add_edge("blueprint_presentation", "coder")
     graph.add_edge("coder", "validator")
     
     # Conditional logic out of the validator
@@ -172,6 +225,6 @@ def build_graph():
     # Attach memory so the graph can be paused waiting for Slack human approval
     from langgraph.checkpoint.memory import MemorySaver
     checkpointer = MemorySaver()
-    app = graph.compile(checkpointer=checkpointer, interrupt_before=["push"])
+    app = graph.compile(checkpointer=checkpointer, interrupt_before=["coder", "push"])
     
     return app
