@@ -1,0 +1,91 @@
+name: "🐛 Bug Fix"
+description: "Request the Lios-Agent to investigate and fix a bug"
+title: "[Bug]: "
+labels: ["agent-task", "bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Lios-Agent Bug Fix Request
+        Provide as much context as possible so the agent can locate, diagnose, and fix the bug autonomously.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: "What is broken? Describe the incorrect behavior and what the expected behavior should be."
+      placeholder: |
+        The Order Tracking screen crashes when the API returns an empty milestones array.
+        Expected: Show an empty state view with "No tracking updates yet" message.
+        Actual: Fatal error — index out of range in OrderTrackingViewModel.swift line 42.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction-steps
+    attributes:
+      label: Steps to Reproduce
+      description: "Step-by-step instructions to trigger the bug."
+      placeholder: |
+        1. Open the app
+        2. Navigate to Order Detail for order ORD-99999
+        3. Tap "Track Package"
+        4. App crashes immediately
+    validations:
+      required: true
+
+  - type: textarea
+    id: affected-files
+    attributes:
+      label: Affected Files / Stack Trace
+      description: "Paste the crash log, stack trace, or list the files you suspect are involved."
+      placeholder: |
+        Crash in OrderTrackingViewModel.swift:42
+        Stack trace:
+        - OrderTrackingViewModel.loadMilestones() → line 42
+        - OrderTrackingView.onAppear() → line 18
+
+        Suspected files:
+        - Sources/Features/Order/OrderTrackingViewModel.swift
+        - Sources/Features/Order/OrderTrackingView.swift
+      render: shell
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: "How critical is this bug?"
+      options:
+        - "🔴 Critical — App crash, data loss, or security issue"
+        - "🟠 High — Major feature broken, no workaround"
+        - "🟡 Medium — Feature degraded, workaround exists"
+        - "🟢 Low — Cosmetic or minor inconvenience"
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: "iOS version, device, and any relevant configuration."
+      placeholder: |
+        - iOS 16.4 / iPhone 14 Pro (Simulator)
+        - Xcode 16.2
+        - Debug build
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Fix Acceptance Criteria
+      description: "How will we verify the fix is correct? The agent generates XCTest suites based on these."
+      placeholder: |
+        - [ ] No crash when milestones array is empty
+        - [ ] Empty state view is displayed correctly
+        - [ ] Unit test added for empty milestones case
+        - [ ] Existing milestone display still works correctly
+    validations:
+      required: true

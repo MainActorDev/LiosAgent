@@ -1,0 +1,122 @@
+name: "🚀 Feature Request"
+description: "Request the Lios-Agent to build a new feature or screen"
+title: "[Feature]: "
+labels: ["agent-task", "feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Lios-Agent Feature Request
+        Fill out this form to give the agent the context it needs to autonomously plan, build, and test your feature. The more detail you provide, the more accurate the generated architecture will be.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Feature Description
+      description: "What should the agent build? Describe the feature, its purpose, and expected user-facing behavior."
+      placeholder: |
+        Example: Build an Order Tracking screen that displays the real-time shipment status.
+        The user should see a timeline of delivery milestones (Picked Up, In Transit, Out for Delivery, Delivered).
+        Each milestone should show a timestamp and a brief description.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: domain
+    attributes:
+      label: Primary Domain
+      description: "What area of the codebase does this primarily affect?"
+      options:
+        - "UI / View Layer (SwiftUI, UIKit, Construkt)"
+        - "Network / Data Layer (API, Repository, Model)"
+        - "Both UI and Data"
+        - "Infrastructure (Build config, CI/CD, Scripts)"
+        - "Other / Unsure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: affected-modules
+    attributes:
+      label: Affected Modules / Files
+      description: "List any existing modules, screens, or files that this feature should integrate with or modify. If you're unsure, describe the area of the app."
+      placeholder: |
+        - `Sources/Features/Order/` — existing Order module
+        - `Sources/App/AppCoordinator.swift` — needs a new navigation route
+        - `Sources/Network/OrderService.swift` — may need a new API endpoint
+    validations:
+      required: false
+
+  - type: textarea
+    id: api-contract
+    attributes:
+      label: API Contract / Data Source
+      description: "If this feature requires network data, paste the API endpoint, request/response JSON, or describe the data source."
+      placeholder: |
+        GET /api/v1/orders/{orderId}/tracking
+
+        Response:
+        {
+          "orderId": "ORD-12345",
+          "milestones": [
+            { "status": "picked_up", "timestamp": "2026-04-18T10:00:00Z", "description": "Package picked up" }
+          ]
+        }
+      render: json
+    validations:
+      required: false
+
+  - type: textarea
+    id: design-reference
+    attributes:
+      label: Design Reference
+      description: "Link to Figma designs, screenshots, or describe the expected visual appearance. The agent uses this for UI Vision Validation."
+      placeholder: |
+        Figma: https://figma.com/file/xxxxx
+        - Use Construkt.bgPrimary for background
+        - Timeline should be a vertical scrollable list
+        - Each milestone uses a circular indicator with connecting line
+    validations:
+      required: false
+
+  - type: dropdown
+    id: architecture-pattern
+    attributes:
+      label: Architecture Pattern
+      description: "Which architecture pattern should the agent follow for this feature?"
+      options:
+        - "MVVM (Default)"
+        - "MVVM-C (with Coordinator)"
+        - "MVC"
+        - "Follow existing pattern in the module"
+        - "Other (specify in description)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: "Define the specific conditions that must be met for this feature to be considered complete. The agent uses these to generate XCTest suites."
+      placeholder: |
+        - [ ] Screen displays a list of delivery milestones from the API
+        - [ ] Each milestone shows status icon, timestamp, and description
+        - [ ] Loading state shown while fetching data
+        - [ ] Error state shown if API call fails
+        - [ ] Unit tests cover the ViewModel logic
+        - [ ] Snapshot tests cover the View layout
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints & Edge Cases
+      description: "Any limitations, backward compatibility requirements, iOS version constraints, or edge cases the agent should be aware of."
+      placeholder: |
+        - Must support iOS 16+
+        - Must work in Dark Mode
+        - Empty state when no milestones exist yet
+        - Handle offline scenario gracefully
+    validations:
+      required: false
