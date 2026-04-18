@@ -20,13 +20,18 @@ class MCPManager:
     async def connect_and_get_tools(self, workspace_path: str = None) -> List:
         all_tools = []
         workspace_env = os.environ.copy()
-        # Ensure common bin paths are available for subprocess resolution
-        extra_paths = ["/opt/homebrew/bin", "/usr/local/bin"]
-        # Add NVM fallback optionally
-        home = os.path.expanduser("~")
-        extra_paths.extend([f"{home}/.local/bin", f"{home}/.cargo/bin", f"{home}/.nvm/versions/node/v18.17.0/bin"])
         
-        workspace_env["PATH"] = workspace_env.get("PATH", "") + ":" + ":".join(extra_paths)
+        try:
+            # Dynamically fetch the shell's true PATH to resolve nvm / correct node binaries safely.
+            import subprocess
+            shell_path = subprocess.check_output(["bash", "-l", "-c", "echo $PATH"]).decode().strip()
+            workspace_env["PATH"] = shell_path
+        except Exception as e:
+            print(f"Fallback: Could not resolve interactive shell PATH. Using defaults. ({e})")
+            extra_paths = ["/opt/homebrew/bin", "/usr/local/bin"]
+            home = os.path.expanduser("~")
+            extra_paths.extend([f"{home}/.local/bin", f"{home}/.cargo/bin"])
+            workspace_env["PATH"] = workspace_env.get("PATH", "") + ":" + ":".join(extra_paths)
         
         if workspace_path:
             workspace_env["PWD"] = workspace_path

@@ -38,9 +38,9 @@ def clone_isolated_workspace(task_id: str, repo_url: str) -> str:
         except subprocess.CalledProcessError:
             subprocess.run(["cp", "-R", seed_path, workspace_path], check=True) # Fallback
             
-        # 3. Check out the agent's branch
+        # 3. Check out the agent's branch (using -B to overwrite safely if it already exists)
         branch_name = f"ios-agent-issue-{task_id}"
-        subprocess.run(["git", "checkout", "-b", branch_name], cwd=workspace_path, check=True, capture_output=True)
+        subprocess.run(["git", "checkout", "-B", branch_name], cwd=workspace_path, check=True, capture_output=True)
         
         return f"Hot Workspace cloned via APFS at: {workspace_path}"
     except subprocess.CalledProcessError as e:
@@ -90,6 +90,9 @@ def execute_xcodebuild(workspace_path: str) -> str:
     Dynamically generates the project if needed, then attempts to compile it,
     piping output through rtk to save LLM tokens.
     """
+    if not shutil.which("rtk"):
+        return "FATAL ERROR: The `rtk` (Rust Token Kit) CLI proxy is missing from the system PATH. Execution halted to prevent API token exhaustion."
+
     prepare_project_structure(workspace_path)
     
     # Fallback to pure xcodebuild if no custom fast-build script exists
@@ -122,7 +125,7 @@ def commit_and_push_branch(workspace_path: str, branch_name: str, commit_message
     This safely bypasses mutating the human developer's local code.
     """
     try:
-        subprocess.run(["git", "checkout", "-b", branch_name], cwd=workspace_path, check=True, capture_output=True)
+        subprocess.run(["git", "checkout", "-B", branch_name], cwd=workspace_path, check=True, capture_output=True)
         subprocess.run(["git", "add", "."], cwd=workspace_path, check=True, capture_output=True)
         subprocess.run(["git", "commit", "-m", commit_message], cwd=workspace_path, check=True, capture_output=True)
         # Push the branch to the remote origin
