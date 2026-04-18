@@ -1,0 +1,19 @@
+import operator
+from typing import TypedDict, List, Annotated
+
+class AgentState(TypedDict):
+    # Metadata
+    task_id: str                # Unique identifier for this agent run (e.g., GitHub issue #)
+    instructions: str           # The raw request from the user/issue body
+    repo_url: str               # The target repository SSH URL to clone
+    repo_full_name: str         # The target repository full name (e.g., User/repo)
+    installation_id: str        # GitHub App Installation ID for API interaction
+    
+    # Execution Tracking
+    workspace_path: str         # The local path where the isolated repo was cloned
+    current_branch: str         # The random branch name generated for this task
+    
+    # LangGraph Memory
+    history: Annotated[List[str], operator.add] # Log of all steps taken (for Slack status)
+    compiler_errors: List[str]  # Accumulated xcodebuild errors
+    retries_count: int          # Hard limit to prevent infinite loops (max 3)

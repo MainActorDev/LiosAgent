@@ -4,3 +4,7 @@ slack_bolt>=1.18.0
 slack_sdk>=3.22.0
 PyGithub>=2.1.1
 python-dotenv>=1.0.0
+langchain>=0.2.0
+langchain-core>=0.2.0
+langchain-openai>=0.1.0
+langgraph>=0.1.0
