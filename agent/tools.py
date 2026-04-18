@@ -77,30 +77,41 @@ def write_workspace_file(workspace_path: str, file_relative_path: str, content: 
     except Exception as e:
         return f"Error writing file: {str(e)}"
 
+def prepare_project_structure(workspace_path: str):
+    if os.path.exists(os.path.join(workspace_path, "project.yml")):
+        subprocess.run(["rtk", "xcodegen", "generate"], cwd=workspace_path, check=False)
+    elif os.path.exists(os.path.join(workspace_path, "Tuist", "Project.swift")):
+        subprocess.run(["rtk", "tuist", "generate"], cwd=workspace_path, check=False)
+    elif os.path.exists(os.path.join(workspace_path, "Package.swift")):
+        subprocess.run(["rtk", "swift", "package", "resolve"], cwd=workspace_path, check=False)
+
 def execute_xcodebuild(workspace_path: str) -> str:
     """
-    Runs the 'scripts/xcodebuild_cached.sh' in the isolated workspace to verify if the code compiles.
-    Returns the compiler output (Success or Error Logs).
+    Dynamically generates the project if needed, then attempts to compile it,
+    piping output through rtk to save LLM tokens.
     """
-    build_script = "./scripts/xcodebuild_cached.sh"
-    full_script_path = os.path.join(workspace_path, "scripts", "xcodebuild_cached.sh")
+    prepare_project_structure(workspace_path)
     
-    if not os.path.exists(full_script_path):
-        return "Error: Cannot find scripts/xcodebuild_cached.sh. Are you sure this is the correct repository?"
+    # Fallback to pure xcodebuild if no custom fast-build script exists
+    build_cmd = ["rtk", "xcodebuild", "build", "-scheme", "App", "-destination", "generic/platform=iOS Simulator"]
+    
+    if os.path.exists(os.path.join(workspace_path, "scripts", "xcodebuild_cached.sh")):
+        build_cmd = ["rtk", "bash", "./scripts/xcodebuild_cached.sh"]
         
     try:
         # We use cwd=workspace_path so xcodebuild runs in the correct directory context
         result = subprocess.run(
-            ["bash", build_script],
+            build_cmd,
             cwd=workspace_path,
             capture_output=True,
             text=True
         )
         
+        # RTK heavily compresses logs, so we can return them safely in full
         if result.returncode == 0:
-            return f"Build SUCCESS!\n\nOutput snippet:\n{result.stdout[-1000:]}"
+            return f"Build SUCCESS!\n\nRTK Distilled Output:\n{result.stdout}"
         else:
-            return f"Build FAILED!\n\nError Log:\n{result.stderr[-2000:]}\nStdout Snippet:\n{result.stdout[-2000:]}"
+            return f"Build FAILED!\n\nRTK Distilled Error Log:\n{result.stderr}\n\nStdout:\n{result.stdout}"
             
     except Exception as e:
         return f"Failed to execute build script: {str(e)}"

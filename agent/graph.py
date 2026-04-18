@@ -151,8 +151,14 @@ def should_retry(state: AgentState) -> str:
     if "PASSED" in state.get("history", [])[-1]:
         return "checkout"
         
-    # Safeguard against infinite loops
+    # Safeguard against infinite loops and clean corrupted states
     if state.get("retries_count", 0) >= 3:
+        workspace_path = state.get("workspace_path")
+        if workspace_path:
+            import subprocess
+            print("🚨 Max retries hit! Executing RTK State Rollback...")
+            subprocess.run(["rtk", "git", "clean", "-fd"], cwd=workspace_path, check=False)
+            subprocess.run(["rtk", "git", "checkout", "--", "."], cwd=workspace_path, check=False)
         return "checkout"
         
     return "coder" # Feedback loop: go back to coding to fix the compiler error
