@@ -1,6 +1,6 @@
 # 🔍 Phase 3: Review — Deep Dive
 
-This document details the complete flow of the Review phase in the Lios-Agent orchestrator. The Review phase validates generated code against the compiler, the visual design system, and human feedback.
+This document details the complete flow of the Review phase in the Lios-Agent orchestrator. The Review phase validates generated code against the compiler, autonomously navigates the UI via Maestro to assert pixel-perfect accuracy, and securely merges its workflow artifacts back to GitHub.
 
 ---
 
@@ -11,213 +11,109 @@ Code from Execution Phase
        │
        ▼
 ┌─────────────────┐    build failed     ┌─────────────────┐
-│ Build Validator  │ ──────────────────► │ Router (retry)  │
-│ (RTK + xcode)   │    (up to 3x)       └─────────────────┘
+│ Build Validator │ ──────────────────► │ Router (retry)  │
+│ (Native Loop)   │    (up to 3x)       └─────────────────┘
 └───────┬─────────┘
         │ build passed
         ▼
-┌─────────────────────┐    UI failed    ┌─────────────────┐
-│  UI Vision Check    │ ──────────────► │ Router (retry)  │
-│  (SimCtl + Vision)  │                 └─────────────────┘
-└───────┬─────────────┘
+┌─────────────────────────────────┐   fails   ┌─────────────────┐
+│ Maestro Flow & UI Vision Nav    │ ────────► │ Router (retry)  │
+│ (simctl + glm-4v + maestro)     │           └─────────────────┘
+└───────┬─────────────────────────┘
         │ passed (or no UI)
         ▼
-┌─────────────────┐
-│      Push       │ → git commit + push → GitHub PR
-└───────┬─────────┘
+┌──────────────────────────────────────────────┐
+│  Push Node & GitHub Telemetry Rendering      │
+│  (Commits flow, videos, or halts pipeline)   │
+└───────┬──────────────────────────────────────┘
         │
         ▼
 ┌─────────────────────────┐
-│    PR Review Loop       │  ← inline code review comments
+│    PR Review / Redo     │  ← Issue Comments or Redo override
 │  (re-triggers pipeline) │     trigger a new fix cycle
 └─────────────────────────┘
 ```
 
 ---
 
-## Step 1: Build Validator
+## Step 1: Build Validator Bypass
 
-**Source:** `agent/graph.py` → `validator_node()` / `agent/tools.py` → `execute_xcodebuild()`
+**Source:** `agent/graph.py` → `validator_node()`
 
 ### Purpose
-Compile the project and determine if the generated code actually works.
+Determine if the generated code actually compiles natively.
 
 ### Flow
+Lios-Agent entirely delegates `verification-before-completion` directly to the execution phase. If OpenCode exits cleanly, `validator_node` skips redundant Xcodebuild logic and inherently transitions the state forward by pushing the `Build SUCCESS` signal to the graph.
 
-#### 1a. Project Structure Generation
-Before building, `prepare_project_structure()` auto-detects and runs the appropriate project generator:
-
-| Detection | Command |
-|-----------|---------|
-| `project.yml` exists | `rtk xcodegen generate` |
-| `Tuist/Project.swift` exists | `rtk tuist generate` |
-| `Package.swift` exists | `rtk swift package resolve` |
-| None of the above | Skip (assumes `.xcodeproj` already exists) |
-
-#### 1b. Build Execution
-```python
-build_cmd = ["rtk", "xcodebuild", "build", "-scheme", "App", "-destination", "generic/platform=iOS Simulator"]
-```
-- If `scripts/xcodebuild_cached.sh` exists, it uses the cached build script instead.
-- All output is piped through **RTK** (Rust Token Kit), which truncates verbose xcodebuild logs (~30,000 lines) into compact semantic summaries (~20 tokens).
-
-#### 1c. RTK Safety Check
-```python
-if not shutil.which("rtk"):
-    return "FATAL ERROR: The `rtk` CLI proxy is missing from the system PATH."
-```
-If RTK is not installed, the validator **halts immediately** rather than silently dumping 30K tokens into the LLM.
-
-#### 1d. Result Routing
-
-**Build Succeeded:**
-- Posts a Slack Block Kit message with an **[Approve & Push]** button.
-- Routes to `ui_vision_check` via `should_retry() → "ui_check"`.
-
-**Build Failed (retries < 3):**
-- Appends compiler output to `state["compiler_errors"]`.
-- Increments `retries_count`.
-- Routes back to the Router → Sub-Agents for targeted fixes.
-
-**Build Failed (retries >= 3):**
-- Triggers a **full state rollback**:
-  ```bash
-  rtk git clean -fd          # Remove untracked files
-  rtk git checkout -- .      # Restore all modified files
-  ```
-- Routes to `ui_vision_check` (which will pass through to Push, giving up gracefully).
+**Build Failed (via catastrophic LLM timeout):**
+- LangGraph triggers a **full state rollback** after 3 failed compilation loops.
+- Routes to `push_node` with a halted status.
 
 ---
 
-## Step 2: UI Vision Check
+## Step 2: Maestro Flow Synthesis & UI Validation
 
-**Source:** `agent/graph.py` → `ui_vision_validator_node()` / `agent/tools.py` → `capture_simulator_screenshot()`, `validate_ui_with_vision()`
+**Source:** `agent/graph.py` → `maestro_navigation_generator`, `vision_validation` / `agent/tools.py`
 
 ### Purpose
-An app can compile perfectly but still look visually broken. This step catches pixel-level regressions that pass the compiler.
-
-### Activation Condition
-The node inspects `blueprint["architecture_components"]` for UI-related keywords:
-```python
-ui_keywords = ["SwiftUI", "UIKit", "View", "Construkt", "UI", "Screen", "Component"]
-```
-- **If no UI keywords found** → Skip entirely, proceed to Push.
-- **If UI keywords found** → Run the visual verification pipeline.
+An app can compile perfectly but still look visually incorrect. This phase performs dynamic, hierarchy-aware autonomous navigation using physical interaction (via Maestro) to reach modified views, capture telemetry, and pass vision evaluations.
 
 ### Flow
 
-#### 2a. Simulator Screenshot Capture
-1. `xcrun simctl list devices available -j` → Find an available iOS simulator.
-2. `xcrun simctl boot {udid}` → Boot it if not already running.
-3. `xcodebuild build -destination "platform=iOS Simulator,id={udid}"` → Build and install the app.
-4. Wait 3 seconds for the simulator to settle.
-5. `xcrun simctl io {udid} screenshot .lios_screenshot.png` → Capture the screen.
+#### 2a. Human Override Detection Pipeline
+Lios-Agent first regex scans the developer's GitHub Issue instructions for an explicit ````yaml appId: ... ```` markdown block.
+- **Override Triggered:** The system completely bypasses the subjective LLM vision loop. It extracts the raw developer-provided Maestro flow, invisibly injects `- startRecording: lios_navigation` into it, and strictly follows the human's deterministic navigation logic.
+- **No Override:** The system falls back to fully autonomous traversal.
 
-#### 2b. Vision LLM Validation
-1. The screenshot PNG is base64-encoded.
-2. A multimodal LLM (GPT-4o / Claude Sonnet) receives:
-   - The screenshot image
-   - Design constraints from the blueprint:
-     ```
-     Architecture components: SwiftUI, MVVM, Construkt.bgPrimary
-     Feature: OrderTrackingScreen
-     Ensure compliance with Construkt design tokens and MVVM layout patterns.
-     ```
-3. The LLM evaluates:
-   - Color palette compliance
-   - Layout structure (spacing, alignment, hierarchy)
-   - Typography consistency
-   - Component completeness
-4. Response format: `"PASS: ..."` or `"FAIL: ..."`
+#### 2b. Autonomous Vision Navigation Loop
+1. **Source Code Hint Extraction:** A planning LLM parses the Git diffs of modified files (like `AppCoordinator.swift` and `ProfileView.swift`) to extrapolate semantic hints about how to reach the newly added view computationally.
+2. **Interactive Simulation:**
+   - Boot iOS Simulator.
+   - The Orchestrator begins a finite loop state machine. At each frame, it uses `xcrun simctl` to capture a screenshot (`maestro_step_*.png`) and dumps the live semantic UI hierarchy using `maestro hierarchy --compact`.
+   - A multimodal Vision LLM consumes the screen capture, the parsed UI elements array, and previous `action_history` context. It outputs an action command: `TAP: <label>`, `SCROLL: DOWN`, or `DONE` (Reached Target).
+   - If `TAP` or `SCROLL` is outputted, the command translates into a temporary `maestro_step.yaml` (using `retryTapIfNoChange` capabilities) to physically move the simulator, validating interactions based on standard accessibility logic (IDs and Text properties).
+   - The loop utilizes internal Loop Detection to prevent infinite tapping.
 
-#### 2c. Result Routing
+#### 2c. Replayable Flow Synthesis
+Once the `DONE` flag is reached, `agent/tools.py` synthesizes the validated `action_history` sequence into a final, canonical `maestro_flow.yaml`. 
+It natively wraps this artifact inside recording blocks. It then executes the sequence rapidly to create the high-definition `lios_navigation.mp4` output artifact and captures the final `lios_final_state.png`.
 
-**Vision Passed (or skipped)** → Proceed to Push.
-
-**Vision Failed (retries < 3):**
-- The visual feedback is appended to `state["compiler_errors"]` as `"UI VISION FAILURE: {feedback}"`.
-- Routes back to Router → Sub-Agents, where the UI sub-agent receives the visual feedback in its error prompt.
-
-**Screenshot capture failed** → Warning logged, proceed to Push anyway (non-blocking).
+#### 2d. Quality Validation
+A Multimodal LLM compares the final capture against Construkt design constraints inside the FeatureBlueprint to enforce pixel-perfect layout and token compliance. Returns `PASS` or `FAIL`.
 
 ---
 
-## Step 3: Push
+## Step 3: Push Node & GitHub Formatting
 
-**Source:** `agent/graph.py` → lambda node / `agent/tools.py` → `commit_and_push_branch()`
+**Source:** `agent/graph.py` → `push_node`
 
 ### Purpose
-Commit the agent's changes and push them to GitHub as a pull request branch.
+Commit the agent's workspace changes and pipe rich telemetry logs safely back into the developer's GitHub conversation.
 
 ### Flow
-1. `git checkout -B {branch_name}` — Ensure we're on the agent's branch.
-2. `git add .` — Stage all modifications.
-3. `git commit -m "{commit_message}"` — Commit with a descriptive message.
-4. `git push -u origin {branch_name}` — Push to the remote.
+1. Evaluates overall workflow status.
 
-### Note
-The current implementation pushes the branch but does not yet auto-create a GitHub Pull Request via the API. The branch appears on GitHub and the developer can open the PR manually. Auto-PR creation is a future enhancement.
+**Status: SUCCESS**
+- Code merges and pushes to feature branch remote.
+- Generates a vibrant PR comment containing hydrated repository artifact `.mp4` URLs (automatically wrapping them natively via GitHub's Markdown video renderers).
+
+**Status: FAILED (Halted)**
+- If a pipeline fatally crashes (max SwiftUI compiler retries hit or Maestro navigation loop crashes), the system natively traps the LangGraph in the `await_clarification` state.
+- `push_node` builds a `Push Halted` markdown block on the Issue comment and rigorously extracts the actual Xcode crash log OR the pipeline Python exception, mapping it cleanly so the developer doesn't need to read terminal outputs.
 
 ---
 
-## Step 4: PR Review Loop
+## Step 4: Redo Pipeline / Human-in-the-Loop Recovery
 
-**Source:** `main.py` → `github_webhook()` handler for `pull_request_review_comment` events
+**Source:** `main.py` → `issue_comment` Webhook Handler
 
 ### Purpose
-When a human developer reviews the agent's PR and leaves inline code comments, the agent automatically picks up the feedback, fixes the code, and pushes the update — all without human intervention beyond the initial comment.
-
-### Trigger
-GitHub sends a `pull_request_review_comment` webhook when a developer comments on a specific line of code in the PR diff.
+Gracefully recover aborted states without ever leaving GitHub via simple developer messaging.
 
 ### Flow
-1. **Extract Context:**
-   ```python
-   review_body = comment["body"]          # "Change this red to Construkt.bgPrimary"
-   diff_hunk = comment["diff_hunk"]       # The surrounding diff context
-   file_path = comment["path"]            # "Sources/Features/Order/OrderTrackingView.swift"
-   pr_branch = pull_request["head"]["ref"] # "ios-agent-issue-42"
-   ```
-
-2. **Clone & Checkout PR Branch:**
-   ```python
-   task_id = f"pr-review-{pr_number}"
-   clone_isolated_workspace(task_id, repo_url)
-   git fetch origin {pr_branch}
-   git checkout {pr_branch}
-   ```
-
-3. **Construct Targeted Instructions:**
-   ```
-   PR Review Fix Request:
-   File: Sources/Features/Order/OrderTrackingView.swift
-   Diff Context:
-   @@ -45,7 +45,7 @@ struct OrderTrackingView: View {
-   -    .foregroundColor(.red)
-   +    .foregroundColor(Color("primary"))
-   
-   Reviewer Comment: Change this red to Construkt.bgPrimary
-   
-   Fix the code in the file mentioned above based on the reviewer's feedback.
-   ```
-
-4. **Re-trigger Pipeline:**
-   The full Router → Sub-Agent → Validator pipeline runs with the review instructions.
-
-5. **Push Fix:**
-   The corrected code is committed and pushed directly to the existing PR branch.
-
-### Key Behaviors
-- Each review comment triggers an **independent** pipeline run.
-- The `thread_id` is `"pr-review-{pr_number}"` so LangGraph checkpoints don't collide with the original issue thread.
-- The workspace is a fresh sandbox (`pr-review-{pr_number}`) to avoid contaminating the original workspace.
-
----
-
-## Retry Budget Summary
-
-| Failure Type | Max Retries | On Exhaustion |
-|-------------|-------------|---------------|
-| **Build errors** | 3 | `git clean -fd && git checkout -- .` (full rollback), then proceed to push |
-| **UI vision failures** | 3 (shared counter) | Skip visual check, proceed to push |
-| **PR review fixes** | 3 (independent counter) | Pipeline ends; developer must fix manually |
+If the developer reads the `Push Halted` log and leaves a GitHub comment starting with **"Redo: <instruction>"**:
+- `main.py` immediately resets `state.halted: False` and clears the error cache strings.
+- Appends the developer's new instructions cleanly onto the agent workflow prompt context.
+- Fires the exact same pre-configured LangGraph Config to intrinsically bypass the halt trap and seamlessly re-initialize the pipeline from the `vetting` node, inherently wiping the corrupt branch sandbox and trying again with fresh developer insight!
+- If the thread was actually terminated historically and completely died natively, it bypasses graph logic and spins up a brand new `thread_id` to dynamically override the death.

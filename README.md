@@ -12,10 +12,10 @@ The platform operates purely via Slack and GitHub Webhooks, ensuring developers 
 │    Vetting → Workspace Init → Context Aggregator → Planner → HITL  │
 ├─────────────────────────────────────────────────────────────────────┤
 │  ⚡ EXECUTION PHASE                                                 │
-│    Router → [ UI Sub-Agent | Network Sub-Agent | General Coder ]   │
+│    Architect Coder → Headless OpenCode CLI (AST Editing Sandbox)   │
 ├─────────────────────────────────────────────────────────────────────┤
 │  🔍 REVIEW PHASE                                                    │
-│    Build Validator → UI Vision Check → Push PR → PR Review Loop    │
+│    Build Validator Bypass → Maestro UI Nav → Push PR               │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -29,7 +29,7 @@ Gathers intelligence, understands the task, and produces an architectural bluepr
 |----------|---------|
 | **Vetting** | Filters vague/spam issues. Posts a GitHub clarification comment if the issue lacks context; otherwise marks it `ACTIONABLE`. |
 | **Workspace Init** | Clones the target repo into an isolated APFS Copy-on-Write sandbox. Checks out the agent's working branch (`ios-agent-issue-{id}`). |
-| **Context Aggregator** | Async node that queries **Serena MCP** (codebase symbols) and **XcodeBuildMCP** (build settings) to inject real architectural awareness into the planner prompt. |
+| **Context Aggregator** | Async ReAct agent that: 1. Discovers codebase patterns via **Serena MCP** and **XcodeBuildMCP**. 2. Parses `.lios-config.yml` rules. 3. Aggregates any `.agent/**/*.md` instructions. 4. Fetches external web links if referenced in the target issue. |
 | **Planner** | Consumes MCP context and outputs a strict Pydantic `FeatureBlueprint` JSON with mandatory `files_to_test` (enforcing TDD). |
 | **Blueprint Presentation** *(HITL)* | Posts the blueprint as Markdown to the GitHub Issue. **Halts** the pipeline until a human comments **"Approve"**. |
 
@@ -37,21 +37,14 @@ Gathers intelligence, understands the task, and produces an architectural bluepr
 
 ### ⚡ Phase 2: Execution
 
-Writes code through domain-specialized sub-agents using **surgical line-range patching** instead of full-file rewrites.
+Writes code through a stateless integration with the headless `opencode-ai` CLI. LangGraph acts strictly as the **Manager**, while OpenCode acts as the **Executor**.
 
 | Sub-Node | Purpose |
 |----------|---------|
-| **Router** | Analyzes the blueprint's architecture components and file paths to classify the task into domains (`ui`, `network`, or `general`), then dispatches to the appropriate sub-agent(s). |
-| **UI Sub-Agent** | Specialist for SwiftUI/UIKit Views, Construkt design tokens, Screens, and Components. Uses a focused system prompt scoped to the view layer. |
-| **Network Sub-Agent** | Specialist for API Services, Repositories, DTOs, and Data Models. Follows clean architecture patterns (Repository → Service → DTO → Domain Model). |
-| **General Coder** | Fallback for tasks that don't fit UI or Network domains. |
+| **Architect Coder** | Translates the blueprint into a massive Prompt Payload and injects safety guardrails (`opencode.json` blocklisting `rm -rf`) into the isolated workspace. |
+| **OpenCode CLI** | Spawned as a streaming subprocess via Python. Handles AST parsing, surgical line replacements (`apply_patch`), and native compilation validation without LangGraph intervention. |
 
-> If both UI and Network domains are detected, they run **sequentially** (UI first → Network second) before reaching the Review phase.
-
-**Surgical Code Patching Tools:**
-- `read_workspace_file_lines` — Reads a specific line range with line numbers prepended (pre-patch recon).
-- `patch_workspace_file` — Surgically replaces only the target line range, leaving the rest untouched.
-- `write_workspace_file` — Reserved exclusively for creating **new** files.
+**Key Advantage:** OpenCode intrinsically loops upon itself if it introduces typographical compilation errors (`verification-before-completion`). LangGraph only parses the final output state.
 
 ---
 
@@ -61,10 +54,10 @@ Validates the generated code against the compiler, the design system, and human 
 
 | Sub-Node | Purpose |
 |----------|---------|
-| **Build Validator** | Runs `xcodebuild` through **RTK** for token-compressed logs (~90% reduction). Implements a **3-strike policy**: after 3 failed retries, triggers `git clean -fd && git checkout -- .` to purge corrupted state. |
-| **UI Vision Check** | Boots the iOS Simulator via `xcrun simctl`, captures a screenshot, and sends it to a **Vision LLM** alongside design constraints for PASS/FAIL evaluation. Only activates when the blueprint contains UI-tagged components. |
-| **Push** | Commits the agent's changes and pushes the branch to GitHub as a pull request. |
-| **PR Review Loop** | When a human developer leaves an **inline code review comment** on the agent's PR, the orchestrator clones the PR branch, re-triggers the Execution → Review pipeline with the comment as instructions, and pushes the fix directly to the existing PR. |
+| **Build Validator Bypass** | Native Compilation validation assumes stability safely via OpenCode's enclosed native compilation loop, bypassing legacy standalone Python execution. |
+| **Maestro UI Validation** | Computes intelligent autonomous visual verification on simulator (`xcrun simctl` + `maestro`). Dynamically captures iOS structures, checks against design limitations using multimodality, synthesizes deterministic replays (`maestro_flow.yaml`), and loops visually. Allows human-developer yaml overrides. |
+| **Push** | Safely commits execution to GitHub. Generates markdown converting video telemetry straight to natively rendered `<video>` URLs. If a pipeline fatally traps the developer's execution limit, freezes execution on a suspended PR block for immediate GitHub Redo intervention. |
+| **PR Review Loop** | When a human developer leaves an **inline code review comment**, the orchestrator clones the PR branch, triggers Coder → Validator, and pushes the fix natively! |
 
 ## 🚀 Quick Start & Installation
 
@@ -73,9 +66,9 @@ The orchestrator relies on several external CLI modules. Please ensure these are
 - **Python 3.10+**
 - **Xcode** (with Command Line Tools)
 - **NVM / Node** (For the `npx xcodebuildmcp` client connection)
-- **RTK Log Distiller** (Crucial for token savings!)
+- **NPM / OpenCode CLI** (For native Agentic Execution)
   ```bash
-  brew install rtk
+  npm i -g opencode-ai@latest
   ```
 
 ### 2. Environment Variables
@@ -94,7 +87,15 @@ SLACK_CHANNEL_ID="C0123456"
 # Code Storage
 GITHUB_APP_ID="123456"
 GITHUB_PRIVATE_KEY_PATH="./lios-agent.private-key.pem"
+
+# Optional: Figma & Jira MCP
+FIGMA_ACCESS_TOKEN="figd_..."
+JIRA_EMAIL="hello@yourcompany.com"
+JIRA_BASE_URL="https://yourcompany.atlassian.net"
+JIRA_API_TOKEN="..."
 ```
+
+*Note: For Figma, generate a Personal Access Token with the `Files: Read` scope in your settings. For Jira, generate a standard API token from [Atlassian Security](https://id.atlassian.com/manage-profile/security/api-tokens).*
 
 ### 3. Server Initialization
 Set up your venv and boot the FastAPI orchestrator:
@@ -143,17 +144,25 @@ Lios-Agent/
 | Decision | Rationale |
 |----------|-----------|
 | **APFS Copy-on-Write** | Instant 0.1s workspace duplication on macOS. Allows 10+ concurrent tasks. |
-| **RTK for all CLI output** | Reduces 30,000-line xcodebuild output to ~20 tokens. Saves 60-90% on LLM billing. |
+| **Headless OpenCode Run** | Delegates extremely tricky AST patching algorithms to a specialized 1st-party CLI. |
 | **Pydantic FeatureBlueprint** | Forces deterministic JSON, preventing freeform text hallucination in planning. |
-| **Sub-Agent Swarms** | Domain-specific system prompts (UI vs Network) reduce cognitive load per LLM call. |
-| **Line-range patching** | Prevents the AI from rewriting entire 3000-line files and destroying unrelated code. |
+| **Auto-Destructing Workspaces** | Aggressive garbage collection (`shutil.rmtree`) happens immediately after a successful PR to prevent SPM / DerivedData bloat. |
 | **Vision UI Validation** | Catches pixel-perfect regressions that pass compilation but look visually broken. |
 | **Async Context Aggregator** | MCP connections require `AsyncExitStack` for persistent stdio pipe lifecycle. |
 
 ## ⚠️ Known Limitations
 When scaling to a production team, be aware of the following system bounds:
 1. **macOS Only**: APFS Copy-on-Write and `xcrun simctl` require macOS. Linux deployment requires alternative workspace strategies.
-2. **RTK Dependency**: If `rtk` is not installed, the Validator will return a `FATAL ERROR` and halt execution (fail-safe, not fail-silent).
-3. **Vision Model Required**: The UI Vision Check requires a multimodal LLM (e.g., GPT-4o, Claude Sonnet). If your configured model doesn't support image input, the vision check will gracefully skip.
-4. **Simulator Availability**: The UI Vision Check requires at least one iOS Simulator runtime installed. Run `xcrun simctl list devices` to verify.
-5. **Sequential Sub-Agents**: UI and Network sub-agents run sequentially (UI first, then Network). True parallel execution would require LangGraph's `parallel_execute` which is a future enhancement.
+2. **Vision Model Required**: The UI Vision Check requires a multimodal LLM (e.g., GPT-4o, Claude Sonnet). If your configured model doesn't support image input, the vision check will gracefully skip.
+3. **Simulator Availability**: The UI Vision Check requires at least one iOS Simulator runtime installed. Run `xcrun simctl list devices` to verify.
+
+## 🛠️ Tech Stacks Used
+
+Lios-Agent is orchestrated entirely in **Python**, binding native MacOS processes dynamically via Unix subshells for optimal hardware execution:
+
+- **LangGraph** & **LangChain**: State machine routing, dependency injection, multi-agent synchronization, memory persistence (`sqlite`), and graph checkpoint definitions.
+- **FastAPI**: Receives Github Webhooks efficiently via standard ASGI web applications.
+- **Slack SDK**: Triggers HITL block-kits and pipelines across distributed engineering channels.
+- **Opencode-AI CLI**: Specialized open-source headless Javascript execution terminal powering the fundamental LLM architectural AST traversal, tree-sitter patching syntax, and native `xcodebuild` execution matrix loop.
+- **Maestro**: Native `.yaml` dynamic functional iOS visual UI testing layer.
+- **Serena MCP** and **XcodeBuildMCP**: Pluggable protocol layers feeding semantic symbol context and workspace schemas natively into orchestrator loops via standard IO pipes.

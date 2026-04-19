@@ -1,0 +1,22 @@
+# .lios-config.yml
+# Place this file in the root directory of your iOS repository.
+# The Lios-Agent reads this file during the Planning phase to understand your team's architectural rules.
+
+architecture:
+  - "Follow MVVM-C (Model-View-ViewModel-Coordinator). Every new screen must have a Coordinator."
+  - "Use clean architecture: Repository -> Service -> DTO -> Domain Model."
+  - "Do NOT use Combine. Use Swift Concurrency (async/await) exclusively."
+
+ui:
+  - "Views must be written in SwiftUI unless explicitly requested otherwise."
+  - "Never use system colors (e.g., .red, .blue). Only use semantic Construkt design tokens."
+  - "Use Construkt spacing constants instead of hardcoded padding values."
+
+testing:
+  - "All ViewModels must have 100% test coverage using XCTest."
+  - "API Services must be tested using mock network responses."
+  - "Test files should be suffixed with `Tests` and placed in the appropriate `Tests/` directory."
+
+general:
+  - "Do not use forced unwrapping (`!`). Always safely unwrap optionals."
+  - "Prefer `struct` over `class` unless reference semantics are explicitly needed."

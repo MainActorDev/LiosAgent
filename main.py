@@ -12,6 +12,23 @@ load_dotenv()
 # Initialize FastAPI
 fastapi_app = FastAPI(title="Lios-Agent")
 
+# Global checkpointer for LangGraph
+GLOBAL_CHECKPOINTER = None
+GLOBAL_EVENT_LOOP = None
+
+@fastapi_app.on_event("startup")
+async def startup_event():
+    global GLOBAL_CHECKPOINTER, GLOBAL_EVENT_LOOP
+    import asyncio
+    GLOBAL_EVENT_LOOP = asyncio.get_running_loop()
+    
+    import aiosqlite
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+    
+    db_path = os.path.join(os.path.dirname(__file__), "state.db")
+    conn = await aiosqlite.connect(db_path)
+    GLOBAL_CHECKPOINTER = AsyncSqliteSaver(conn)
+
 # Initialize Slack App
 # Note: Requires SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET in .env
 slack_app = App(
@@ -92,23 +109,36 @@ def handle_approve_action(ack, body, logger, say):
     issue_num = body["actions"][0]["value"]
     logger.info(f"PR Approved Action Triggered by {user} for issue {issue_num}")
     
-    say(f"✅ Executing final push for Task #{issue_num} by <@{user}>")
+    ay_msg = f"✅ Executing final push for Task #{issue_num} by <@{user}>"
+    say(ay_msg)
     
-    def resume_graph():
+    async def resume_graph_async():
         try:
             from agent.graph import build_graph
-            graph_app = build_graph()
+            graph_app = build_graph(GLOBAL_CHECKPOINTER)
             config = {"configurable": {"thread_id": f"issue-{issue_num}"}}
             
-            # Resume LangGraph from the checkpoint interrupt (None means no new user input)
+            # Verify checkpoint exists before attempting resume
+            state = await graph_app.aget_state(config)
+            if not state or not state.values:
+                print(f"⚠️ No checkpoint found for issue-{issue_num}. Cannot resume.")
+                return
+                
             print(f"Resuming LangGraph execution for Issue {issue_num}...")
-            graph_app.invoke(None, config=config)
+            print(f"  Checkpoint next steps: {state.next}")
+            
+            await graph_app.ainvoke(None, config=config)
             print("LangGraph final step complete.")
         except Exception as e:
+            import traceback
             print(f"Failed to resume LangGraph: {e}")
+            traceback.print_exc()
             
-    import threading
-    threading.Thread(target=resume_graph).start()
+    if GLOBAL_EVENT_LOOP and GLOBAL_EVENT_LOOP.is_running():
+        import asyncio
+        asyncio.run_coroutine_threadsafe(resume_graph_async(), GLOBAL_EVENT_LOOP)
+    else:
+        print("⚠️ GLOBAL_EVENT_LOOP is not set or running! Cannot resume async graph.")
 
 # --------------------------------------------------------------------------
 # FastAPI Endpoints
@@ -149,7 +179,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
         repository = payload.get("repository", {})
         installation = payload.get("installation", {})
         
-        if action == "opened":
+        if action in ["opened", "edited"]:
             issue_num = str(issue.get("number"))
             issue_title = issue.get("title")
             issue_body = issue.get("body", "")
@@ -157,28 +187,37 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
             repo_full_name = repository.get("full_name")
             installation_id = str(installation.get("id", ""))
             
-            # Post a Slack message notifying the team
-            slack_channel = os.environ.get("SLACK_CHANNEL_ID")
-            if slack_channel:
-                try:
-                    slack_app.client.chat_postMessage(
-                        channel=slack_channel,
-                        text=f"New Agent Task Created!",
-                        blocks=[
-                            {
-                                "type": "section",
-                                "text": {"type": "mrkdwn", "text": f"*New GitHub Issue for Agent*\n<{issue['html_url']}|#{issue_num} - {issue_title}>\nTarget Repo: `{repository.get('full_name')}`"}
-                            },
-                        ]
-                    )
-                except Exception as e:
-                    print(f"Error posting to Slack: {e}")
+            if action == "opened":
+                # Post a Slack message notifying the team
+                slack_channel = os.environ.get("SLACK_CHANNEL_ID")
+                if slack_channel:
+                    try:
+                        slack_app.client.chat_postMessage(
+                            channel=slack_channel,
+                            text=f"New Agent Task Created!",
+                            blocks=[
+                                {
+                                    "type": "section",
+                                    "text": {"type": "mrkdwn", "text": f"*New GitHub Issue for Agent*\n<{issue['html_url']}|#{issue_num} - {issue_title}>\nTarget Repo: `{repository.get('full_name')}`"}
+                                },
+                            ]
+                        )
+                    except Exception as e:
+                        print(f"Error posting to Slack: {e}")
                     
             # Trigger LangGraph Workflow Background Task
-            def run_agent_workflow():
+            async def run_agent_workflow():
                 try:
                     from agent.graph import build_graph
-                    graph_app = build_graph()
+                    graph_app = build_graph(GLOBAL_CHECKPOINTER)
+                    config = {"configurable": {"thread_id": f"issue-{issue_num}"}}
+                    
+                    if action == "edited":
+                        state = await graph_app.aget_state(config)
+                        if state.next and state.next[0] == "await_clarification":
+                            print(f"🚀 Resuming LangGraph Vetting for Edited Issue {issue_num}")
+                            await graph_app.ainvoke({"instructions": f"Title: {issue_title}\n\nDescription:\n{issue_body}"}, config=config)
+                        return
                     
                     initial_state = {
                         "task_id": issue_num,
@@ -192,8 +231,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
                     }
                     
                     print(f"🚀 Triggering LangGraph for Issue {issue_num}")
-                    config = {"configurable": {"thread_id": f"issue-{issue_num}"}}
-                    graph_app.invoke(initial_state, config=config)
+                    await graph_app.ainvoke(initial_state, config=config)
                 except Exception as e:
                     print(f"❌ Core LangGraph Error: {e}")
                     
@@ -203,18 +241,78 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
         action = payload.get("action")
         comment = payload.get("comment", {})
         issue = payload.get("issue", {})
+        
+        # Prevent the agent from reacting to its own comments
+        if comment.get("user", {}).get("type") == "Bot" or "bot" in comment.get("user", {}).get("login", "").lower():
+            return {"status": "ignored"}
+            
         body = comment.get("body", "").strip()
         issue_num = str(issue.get("number"))
         
-        if action in ["created", "edited"] and body.lower() == "approve":
-            def resume_from_comment():
+        if action in ["created", "edited"]:
+            async def resume_from_comment():
                 try:
                     from agent.graph import build_graph
-                    graph_app = build_graph()
+                    graph_app = build_graph(GLOBAL_CHECKPOINTER)
                     config = {"configurable": {"thread_id": f"issue-{issue_num}"}}
+                    state = await graph_app.aget_state(config)
                     
-                    print(f"🚀 Resuming LangGraph for Issue {issue_num} via GitHub comment approval")
-                    graph_app.invoke(None, config=config)
+                    # Check if the user is approving the blueprint (paused at the 'blueprint_approval_gate' node)
+                    # We also check 'architect_coder' for backward compatibility, and 'push' so users can approve deployments via GitHub if their Slack webhook isn't configured
+                    valid_gates = ["blueprint_approval_gate", "architect_coder", "push"]
+                    
+                    if "approve" in body.lower() and state.next and any(gate in state.next for gate in valid_gates):
+                        print(f"🚀 Resuming LangGraph for Issue {issue_num} via GitHub comment approval")
+                        await graph_app.aupdate_state(config, {"history": ["Blueprint/Execution approved by human developer, proceeding..."]})
+                        await graph_app.ainvoke(None, config=config)
+                    
+                    # Intercept feedback if paused at the blueprint approval gate
+                    elif state.next and "blueprint_approval_gate" in state.next:
+                        old_instructions = state.values.get("instructions", "")
+                        new_instructions = old_instructions + f"\n\n[Blueprint Feedback]:\n{body}"
+                        print(f"🚀 Resuming LangGraph Planner for Issue {issue_num} with architecture feedback")
+                        await graph_app.aupdate_state(config, {
+                            "instructions": new_instructions, 
+                            "history": [f"Blueprint feedback received: '{body[:50]}...'. Regenerating architecture plan."]
+                        })
+                        await graph_app.ainvoke(None, config=config)
+                        
+                    # Otherwise, check if they are clarifying a vague issue (paused at 'await_clarification')
+                    elif state.next and "await_clarification" in state.next:
+                        old_instructions = state.values.get("instructions", "")
+                        new_instructions = old_instructions + f"\n\n[Developer Clarification]:\n{body}"
+                        print(f"🚀 Resuming LangGraph Vetting for Issue {issue_num} with new clarification")
+                        await graph_app.aupdate_state(config, {
+                            "instructions": new_instructions,
+                            "halted": False,
+                            "compiler_errors": []
+                        })
+                        await graph_app.ainvoke(None, config=config)
+                        
+                    # Failsafe: if the user typed "redo" but the thread was already DEAD (because it failed before the trap feature was added)
+                    elif "redo" in body.lower() and not state.next:
+                        print(f"🚀 Force restarting dead workflow for Issue {issue_num}")
+                        import time
+                        
+                        fresh_config = {"configurable": {"thread_id": f"issue-{issue_num}-redo-{int(time.time())}"}}
+                        issue_data = payload.get("issue", {})
+                        repo_data = payload.get("repository", {})
+                        install_data = payload.get("installation", {})
+                        
+                        initial_state = {
+                            "task_id": issue_num,
+                            "instructions": f"Title: {issue_data.get('title')}\n\nDescription:\n{issue_data.get('body', '')}\n\n[Developer Redo Clarification]:\n{body}",
+                            "repo_url": repo_data.get("ssh_url"),
+                            "repo_full_name": repo_data.get("full_name"),
+                            "installation_id": str(install_data.get("id", "")),
+                            "history": [],
+                            "compiler_errors": [],
+                            "retries_count": 0,
+                            "halted": False
+                        }
+                        
+                        await graph_app.ainvoke(initial_state, config=fresh_config)
+                        
                 except Exception as e:
                     print(f"❌ Core LangGraph Resume Error: {e}")
                     
@@ -239,7 +337,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
             repo_full_name = repository.get("full_name")
             installation_id = str(installation.get("id", ""))
             
-            def run_pr_review_fix():
+            async def run_pr_review_fix():
                 try:
                     from agent.graph import build_graph
                     from agent.tools import clone_isolated_workspace
@@ -253,7 +351,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
                     subprocess.run(["git", "checkout", pr_branch], cwd=workspace_path, check=True, capture_output=True)
                     
                     # 2. Build a focused graph execution with the review as instructions
-                    graph_app = build_graph()
+                    graph_app = build_graph(GLOBAL_CHECKPOINTER)
                     review_instructions = f"""PR Review Fix Request:
 File: {file_path}
 Diff Context:
@@ -279,7 +377,7 @@ Fix the code in the file mentioned above based on the reviewer's feedback."""
                     
                     print(f"🔄 PR Review Loop triggered for PR #{pr_number} on {file_path}")
                     config = {"configurable": {"thread_id": f"pr-review-{pr_number}"}}
-                    graph_app.invoke(initial_state, config=config)
+                    await graph_app.ainvoke(initial_state, config=config)
                 except Exception as e:
                     print(f"❌ PR Review Loop Error: {e}")
                     
