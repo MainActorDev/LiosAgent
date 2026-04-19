@@ -79,12 +79,18 @@ If found, this is saved to `state["opencode_session_id"]`. This enables rapid, c
 
 ## Step 2: OpenCode Native Loop
 
-Once the stateless execution begins, OpenCode handles:
-- **Symbol Search:** AST parsing variables and types.
-- **Surgical Patching:** Executing `apply_patch` natively.
-- **Self-Verification:** Inherently triggering `xcodebuild` or parsing diagnostics to verify its own compilation.
+Once the stateless execution begins, OpenCode takes over full responsibility for the "Coding Phase".
+To understand OpenCode's role, think of the system as a **Manager/Executor** relationship:
+- **LangGraph (The Manager):** Pulls issues from GitHub, assigns them to workspaces, posts Slack updates, runs tests, and pushes PRs.
+- **OpenCode (The Executor):** Checks out the codebase, reads the Manager's blueprint, and physically writes the Swift/Obj-C code.
 
-If OpenCode natively fails to compile its changes, it will seamlessly loop back onto itself without ever notifying the Python LangGraph layer until the fix is secure or the run terminates.
+Specifically, OpenCode handles the following natively:
+
+1. **Semantic Symbol Search:** Instead of doing basic `grep` searches, OpenCode natively understands AST (Abstract Syntax Trees). It searches for class names, structs, and variables across the iOS codebase intelligently to understand the project structure.
+2. **Surgical Patching:** When OpenCode generates code, it executes `apply_patch` natively. It does not rewrite the entire 500-line Swift file (which risks LLM hallucination). It surgically replaces specific line ranges.
+3. **Self-Healing Verification:** OpenCode runs a `verification-before-completion` loop. If it writes a SwiftUI modifier that causes a syntax error, OpenCode natively triggers `xcodebuild` or diagnostic parsing internally.
+
+If OpenCode natively fails to compile its changes, it will seamlessly loop back onto itself to fix its own typographical iOS errors without ever returning control to the Python LangGraph layer until the fix is secure or the run terminates. This is what allowed us to delete the brittle Python-based validation logic entirely.
 
 ---
 
