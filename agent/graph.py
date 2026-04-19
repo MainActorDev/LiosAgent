@@ -90,10 +90,21 @@ Return your findings as a structured Markdown report with headers for each categ
                 agent_skills += f"--- .lios-config.yml ---\n{f.read()}\n\n"
                 
         import glob
-        skills_path = os.path.join(workspace_path, ".agent", "skills", "*.md")
-        for skill_file in glob.glob(skills_path):
-            with open(skill_file, "r") as f:
-                agent_skills += f"--- {os.path.basename(skill_file)} ---\n{f.read()}\n\n"
+        
+        search_patterns = [
+            os.path.join(workspace_path, ".agent", "*.md"),
+            os.path.join(workspace_path, ".agents", "*.md"),
+            os.path.join(workspace_path, ".agent", "skills", "**", "*.md"),
+            os.path.join(workspace_path, ".agents", "skills", "**", "*.md")
+        ]
+        
+        found_files = set()
+        for pattern in search_patterns:
+            for skill_file in glob.glob(pattern, recursive=True):
+                if skill_file not in found_files:
+                    found_files.add(skill_file)
+                    with open(skill_file, "r") as f:
+                        agent_skills += f"--- {os.path.basename(skill_file)} ---\n{f.read()}\n\n"
                 
     if not agent_skills.strip():
         agent_skills = "No specific rules found. Follow standard iOS best practices."
