@@ -610,7 +610,13 @@ def build_graph():
         from agent.tools import commit_and_push_branch, post_github_comment
         
         print(f"🚀 Pushing successfully validated code for #{task_id}...")
-        push_msg = commit_and_push_branch(workspace_path, branch_name, f"Agent Implementation for #{task_id}")
+        push_msg = commit_and_push_branch(
+            workspace_path, 
+            branch_name, 
+            f"Agent Implementation for #{task_id}",
+            installation_id=installation_id,
+            repo_full_name=repo_full_name
+        )
         
         # Notify developer based on the precise outcome
         if "ERROR" in push_msg or "SKIPPED" in push_msg:

@@ -186,7 +186,7 @@ def execute_xcodebuild(workspace_path: str) -> str:
     except Exception as e:
         return f"Failed to execute build script: {str(e)}"
 
-def commit_and_push_branch(workspace_path: str, branch_name: str, commit_message: str) -> str:
+def commit_and_push_branch(workspace_path: str, branch_name: str, commit_message: str, installation_id: str = None, repo_full_name: str = None) -> str:
     """
     Commits local modifications in the workspace to a new branch, and pushes it up to GitHub.
     This safely bypasses mutating the human developer's local code.
@@ -200,6 +200,21 @@ def commit_and_push_branch(workspace_path: str, branch_name: str, commit_message
             
         subprocess.run(["git", "add", "."], cwd=workspace_path, check=True, capture_output=True)
         subprocess.run(["git", "commit", "-m", commit_message], cwd=workspace_path, check=True, capture_output=True)
+        
+        # Authenticate the Remote if a token is available
+        if installation_id and repo_full_name:
+            app_id = os.environ.get("GITHUB_APP_ID")
+            pem_path = os.environ.get("GITHUB_PRIVATE_KEY_PATH", "./lios-agent.private-key.pem")
+            if app_id and os.path.exists(pem_path):
+                from github import GithubIntegration
+                with open(pem_path, 'r') as pem_file:
+                    private_key = pem_file.read()
+                integration = GithubIntegration(app_id, private_key)
+                access_token = integration.get_access_token(int(installation_id)).token
+                # Set the remote URL to use the x-access-token
+                auth_url = f"https://x-access-token:{access_token}@github.com/{repo_full_name}.git"
+                subprocess.run(["git", "remote", "set-url", "origin", auth_url], cwd=workspace_path, check=True, capture_output=True)
+                
         # Push the branch to the remote origin
         push_result = subprocess.run(["git", "push", "-u", "origin", branch_name], cwd=workspace_path, check=True, capture_output=True, text=True)
         return f"SUCCESS: Successfully pushed branch `{branch_name}` to remote.\n\nOutput: {push_result.stdout}"
