@@ -22,3 +22,4 @@ class AgentState(TypedDict):
     agent_skills: str           # Parsed .lios-config.yml and .agent/skills/*.md files
     active_subagents: List[str] # Which sub-agents the Router has dispatched (e.g. ["ui", "network"])
     opencode_session_id: str    # Unique session token to cleanly resume PR review comments
+    screenshot_path: str        # Local workspace path to the generated UI pixel verification screenshot

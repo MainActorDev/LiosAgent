@@ -516,15 +516,17 @@ def ui_vision_validator_node(state: AgentState):
     
     # Run the vision validation
     vision_result = validate_ui_with_vision(screenshot_result, design_constraints)
+    filename = os.path.basename(screenshot_result)
     
     if vision_result["passed"]:
-        return {"history": [f"UI Vision Check: PASSED. {vision_result['feedback']}"]}
+        return {"screenshot_path": filename, "history": [f"UI Vision Check: PASSED. {vision_result['feedback']}"]}
     else:
         # Feed visual feedback back to the coder as compiler errors for the retry loop
         errors = state.get("compiler_errors", [])
         errors.append(f"UI VISION FAILURE: {vision_result['feedback']}")
         retries = state.get("retries_count", 0) + 1
         return {
+            "screenshot_path": filename,
             "compiler_errors": errors,
             "retries_count": retries,
             "history": [f"UI Vision Check: FAILED. {vision_result['feedback']}"]
@@ -649,7 +651,15 @@ def build_graph(checkpointer=None):
         if "ERROR" in push_msg or "SKIPPED" in push_msg:
             comment = f"⚠️ **Push Halted**\n\nThe orchestrator completed execution but the final push was aborted:\n```text\n{push_msg}\n```\n\n*(This typically means the LLM didn't actually modify any files in the workspace, or there was a git authentication issue).*”"
         else:
-            comment = f"✅ **Coding & Validation Complete!**\n\nThe background agents compiled the code successfully and the UI tests passed.\nAll logic and design tokens have been safely pushed to the remote branch `{branch_name}`.\n\n<details><summary><b>Git Push Receipt</b></summary>\n\n```text\n{push_msg}\n```\n</details>\n\nYou can now open a Pull Request!"
+            comment = f"✅ **Coding & Validation Complete!**\n\nThe background agents compiled the code successfully and the UI tests passed.\nAll logic and design tokens have been safely pushed to the remote branch `{branch_name}`.\n"
+            
+            # Explicitly render identical visual context into the PR for humans!
+            rendered_shot = state.get("screenshot_path")
+            if rendered_shot:
+                comment += "\n### 📱 Simulator UX Snapshot\n"
+                comment += f"![Simulator Capture](https://raw.githubusercontent.com/{repo_full_name}/{branch_name}/{rendered_shot})\n"
+                
+            comment += f"\n<details><summary><b>Git Push Receipt</b></summary>\n\n```text\n{push_msg}\n```\n</details>\n\nYou can now open a Pull Request!"
         
         if repo_full_name and installation_id:
             post_github_comment(repo_full_name, task_id, installation_id, comment)
