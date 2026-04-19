@@ -18,11 +18,16 @@ def clone_isolated_workspace(task_id: str, repo_url: str) -> str:
     Instantly duplicates this seed into the task workspace.
     """
     _ensure_workspaces_dir()
-    seed_path = os.path.join(BASE_WORKSPACE_DIR, "seed_cache")
+    # Create a unique, URL-safe cache directory for this specific repository
+    import hashlib
+    repo_hash = hashlib.md5(repo_url.encode()).hexdigest()[:8]
+    seed_name = f"seed_cache_{repo_hash}"
+    
+    seed_path = os.path.join(BASE_WORKSPACE_DIR, seed_name)
     workspace_path = os.path.join(BASE_WORKSPACE_DIR, task_id)
     
     try:
-        # 1. Maintain the Seed Cache
+        # 1. Maintain the Repo-Specific Seed Cache
         if not os.path.exists(seed_path):
             subprocess.run(["git", "clone", repo_url, seed_path], check=True, capture_output=True)
         else:
