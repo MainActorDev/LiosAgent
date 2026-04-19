@@ -455,6 +455,16 @@ async def general_coder_node(state: AgentState):
             from agent.tools import list_workspace_files, run_shell_command
             tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file, list_workspace_files, run_shell_command]
         
+        # Inject python fallback tools globally so Serena has a failsafe for rewriting whole files
+        from agent.tools import write_workspace_file, read_workspace_file, run_shell_command
+        fallback_tools = [write_workspace_file, read_workspace_file, run_shell_command]
+        
+        # Avoid duplicate tool names crashing LangChain
+        existing_tool_names = {t.name for t in tools}
+        for ft in fallback_tools:
+            if ft.name not in existing_tool_names:
+                tools.append(ft)
+        
         from langgraph.prebuilt import create_react_agent
         agent_executor = create_react_agent(llm, tools=tools)
         
@@ -468,11 +478,10 @@ Blueprint:
 TEAM RULES & AGENT SKILLS:
 {agent_skills}
 
-
 IMPORTANT RULES:
 1. Use `find_file` or `list_dir` to discover files in the project.
 2. Use `read_file` to view file contents.
-3. Use `replace_content` (search/replace) to edit existing files. Use `create_text_file` for new files.
+3. Use Serena's `replace_content` for surgical Swift code edits. Use `write_workspace_file` to COMPLETELY OVERWRITE files that are mostly prose (like README.md) because line-by-line patching is too fragile for Markdown.
 4. Use `execute_shell_command` to run git log, git diff, grep, or any shell command you need to understand recent changes.
 5. Always create test files listed in the blueprint's files_to_test."""
         
