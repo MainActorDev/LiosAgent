@@ -530,6 +530,7 @@ def ui_vision_validator_node(state: AgentState):
     
     if screenshot_result.startswith("Error") or screenshot_result.startswith("Simulator"):
         # Screenshot capture failed — don't block the pipeline, just warn
+        print(f"⚠️ Screenshot capture failed. Aborting Vision Check: {screenshot_result}")
         return {"history": [f"UI Vision Check: Screenshot capture failed ({screenshot_result}). Proceeding anyway."]}
     
     # Build design constraints from the blueprint
