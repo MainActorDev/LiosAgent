@@ -490,6 +490,33 @@ If the issue is vague, dummy testing text, or lacks context (e.g. "dummy message
     response = llm.invoke(prompt).content.strip()
     
     if response.upper() == "ACTIONABLE":
+        import os
+        from slack_sdk import WebClient
+        
+        slack_token = os.environ.get("SLACK_BOT_TOKEN")
+        slack_channel = os.environ.get("SLACK_CHANNEL_ID")
+        task_id = state.get("task_id", "Unknown")
+        repo_full_name = state.get("repo_full_name", "Repository")
+        
+        if slack_token and slack_channel:
+            try:
+                client = WebClient(token=slack_token)
+                client.chat_postMessage(
+                    channel=slack_channel,
+                    text="Vetting Passed",
+                    blocks=[
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn", 
+                                "text": f"✅ *Vetting Passed for #{task_id}*\nThe issue is actionable! The Principal Architect is now analyzing `{repo_full_name}` to generate the architectural blueprint. This typically takes 2-3 minutes..."
+                            }
+                        }
+                    ]
+                )
+            except Exception as e:
+                print(f"Failed to post Slack notification: {e}")
+                
         return {"history": ["Issue Vetting: Actionable."]}
     else:
         # Halt and comment on GitHub
