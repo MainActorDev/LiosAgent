@@ -24,7 +24,10 @@ def clone_isolated_workspace(task_id: str, repo_url: str) -> str:
     seed_name = f"seed_cache_{repo_hash}"
     
     seed_path = os.path.join(BASE_WORKSPACE_DIR, seed_name)
-    workspace_path = os.path.join(BASE_WORKSPACE_DIR, task_id)
+    
+    repo_name = repo_url.split('/')[-1].replace(".git", "") if repo_url else "repo"
+    container_path = os.path.join(BASE_WORKSPACE_DIR, task_id)
+    workspace_path = os.path.join(container_path, repo_name)
     
     try:
         # 1. Maintain the Repo-Specific Seed Cache
@@ -45,6 +48,8 @@ def clone_isolated_workspace(task_id: str, repo_url: str) -> str:
         # 2. Instantly replicate the directory using macOS APFS Copy-on-Write
         if os.path.exists(workspace_path):
             shutil.rmtree(workspace_path)
+            
+        os.makedirs(container_path, exist_ok=True)
             
         try:
             subprocess.run(["cp", "-cR", seed_path, workspace_path], check=True, capture_output=True)

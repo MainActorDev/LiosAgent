@@ -37,7 +37,9 @@ def initialize_workspace_node(state: AgentState):
     
     # Using the tool to clone
     result = clone_isolated_workspace(task_id, repo_url)
-    actual_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".workspaces", task_id))
+    
+    repo_name = repo_url.split('/')[-1].replace(".git", "") if repo_url else "repo"
+    actual_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".workspaces", task_id, repo_name))
     branch_name = f"ios-agent-issue-{task_id}"
     
     return {
@@ -703,8 +705,9 @@ def build_graph(checkpointer=None):
             import os
             try:
                 if os.path.exists(workspace_path):
-                    shutil.rmtree(workspace_path, ignore_errors=True)
-                    print(f"🧹 Auto-destructed workspace {workspace_path} to reclaim disk space.")
+                    container_path = os.path.dirname(workspace_path)
+                    shutil.rmtree(container_path, ignore_errors=True)
+                    print(f"🧹 Auto-destructed workspace container {container_path} to reclaim disk space.")
             except Exception as e:
                 print(f"Failed to auto-destruct workspace: {e}")
             
