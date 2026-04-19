@@ -58,7 +58,7 @@ async def context_aggregator_node(state: AgentState):
         
         # Create a tiny internal autonomous loop so the LLM can query Serena/XcodeBuild/Web tools fully
         agent_executor = create_react_agent(llm, tools=tools)
-        prompt = f"""You are the Context Intelligence Agent. Your job is to explore the codebase and external references to gather architecturally significant context for this issue:
+        prompt = f"""You are a Principal iOS Codebase Investigator. Your job is to explore the codebase and external references to gather architecturally significant context for this issue:
 {instructions}
 
 Investigate the following 7 categories using your tools and produce a structured Markdown report:
@@ -121,7 +121,7 @@ def planner_node(state: AgentState):
     mcp_context = state.get("mcp_context", "None")
     agent_skills = state.get("agent_skills", "No specific rules found.")
     
-    prompt = f"""You are the Lios Architect Agent. Design a strict architecture plan for this issue:
+    prompt = f"""You are a Principal iOS Systems Architect. Design a strict architecture plan for this issue:
 {instructions}
 
 External System Context:
@@ -231,7 +231,7 @@ def ui_subagent_node(state: AgentState):
     tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file]
     llm_with_tools = llm.bind_tools(tools)
     
-    prompt = f"""You are the Lios UI Sub-Agent, a specialist in iOS View layer code.
+    prompt = f"""You are a Senior iOS UI/UX Engineer specialized in pixel-perfect SwiftUI and UIKit development.
 You ONLY work on SwiftUI Views, UIKit ViewControllers, Construkt design tokens, and UI components.
 
 Workspace: {workspace_path}
@@ -279,7 +279,7 @@ def network_subagent_node(state: AgentState):
     tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file]
     llm_with_tools = llm.bind_tools(tools)
     
-    prompt = f"""You are the Lios Network Sub-Agent, a specialist in iOS data layer code.
+    prompt = f"""You are a Senior iOS Data Systems Engineer specialized in robust Network and API layers.
 You ONLY work on API Services, Repositories, Data Models, DTOs, and Networking logic.
 
 Workspace: {workspace_path}
@@ -316,7 +316,7 @@ def general_coder_node(state: AgentState):
     tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file]
     llm_with_tools = llm.bind_tools(tools)
     
-    prompt = f"""You are the Lios Coder Agent working in workspace: {workspace_path}
+    prompt = f"""You are a versatile Staff iOS Software Engineer working in workspace: {workspace_path}
 
 Your task: {state.get('instructions')}
 
