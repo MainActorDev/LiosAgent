@@ -422,81 +422,107 @@ def run_maestro_single_tap(device_udid: str, workspace_path: str, bundle_id: str
 
 def navigate_to_target_view(device_udid: str, workspace_path: str, bundle_id: str, instructions: str, blueprint: dict) -> list:
     """
-    Agentic navigation loop: uses Maestro hierarchy dumps to guide the LLM
-    through real UI elements step-by-step until it reaches the target view.
+    Two-phase intelligent navigation:
+    Phase 1: Analyze the source code structure to deduce the navigation path.
+    Phase 2: Use the Vision LLM on screenshots + hierarchy to execute navigation.
     
     Returns a list of navigation log entries.
     """
     from agent.llm_factory import get_llm
     import time
+    import base64
     
-    llm = get_llm(role="planning")
     nav_log = []
     max_steps = 5
     
     # Gather context about what changed
     files = blueprint.get("files_to_modify", []) + blueprint.get("files_to_create", [])
     components = blueprint.get("architecture_components", [])
-    file_list = ", ".join(str(f.get("filepath", "")) for f in files)
+    file_paths = [str(f.get("filepath", "")) for f in files]
+    file_list = ", ".join(file_paths)
     
-    print(f"  📍 Target: {file_list}")
+    print(f"  📍 Target files: {file_list}")
     print(f"  🏗️ Components: {', '.join(components)}")
     
+    # ─── Phase 1: Source Code Intelligence ───
+    # Analyze file paths to understand WHERE in the app the changes live.
+    # e.g., "Features/Movie/MovieDetailView.swift" → target is "Movie" feature, likely a detail screen.
+    nav_hints = _analyze_navigation_from_source(workspace_path, file_paths)
+    print(f"  🧭 Source code nav hints: {nav_hints}")
+    
+    # ─── Phase 2: Vision-Guided Navigation Loop ───
     for step in range(max_steps):
-        # 1. Dump the live hierarchy
+        # 1. Take a live screenshot of current screen state
+        step_screenshot = os.path.join(workspace_path, f"maestro_nav_step_{step}.png")
+        subprocess.run(
+            ["xcrun", "simctl", "io", device_udid, "screenshot", step_screenshot],
+            check=False, capture_output=True
+        )
+        subprocess.run(["sips", "-Z", "600", step_screenshot], check=False, capture_output=True)
+        
+        # 2. Get hierarchy for element labels
         hierarchy = get_maestro_hierarchy(device_udid)
-        if not hierarchy:
-            nav_log.append(f"Step {step+1}: Failed to read hierarchy, stopping navigation.")
-            print(f"  ❌ Step {step+1}: Hierarchy dump returned empty!")
-            break
-        
-        # Filter to only elements with meaningful text labels for cleaner LLM context
         meaningful_lines = []
-        for line in hierarchy.split("\n"):
-            if "accessibilityText=" in line or "text=" in line or "resource-id=" in line:
-                meaningful_lines.append(line)
+        if hierarchy:
+            for line in hierarchy.split("\n"):
+                if "accessibilityText=" in line or "text=" in line or "resource-id=" in line:
+                    meaningful_lines.append(line)
         
-        filtered_hierarchy = "\n".join(meaningful_lines) if meaningful_lines else hierarchy[:2000]
-        interactive_count = len(meaningful_lines)
-        print(f"  🔍 Step {step+1}: Hierarchy has {interactive_count} labeled elements")
+        labeled_elements = "\n".join(meaningful_lines) if meaningful_lines else "No labeled elements found."
+        print(f"  🔍 Step {step+1}: {len(meaningful_lines)} labeled elements on screen")
         
-        if interactive_count == 0:
-            nav_log.append(f"Step {step+1}: No labeled/interactive elements found on screen. Stopping.")
-            print(f"  ⚠️ No tappable elements with text labels found!")
-            break
-        
-        # 2. Ask the LLM what to tap (or if we're already there)
-        prompt = f"""You are navigating an iOS app to reach a specific screen.
-
-TASK: The developer modified these files to implement the following request:
-"{instructions}"
-
-Files changed: {file_list}
-Architecture components: {', '.join(components)}
-
-LABELED ELEMENTS ON CURRENT SCREEN:
-{filtered_hierarchy}
-
-INSTRUCTIONS:
-- If the target screen (where the changes would be visible) is ALREADY showing, respond with exactly: DONE
-- If you need to tap an element to navigate deeper, respond with exactly: TAP: <exact element label>
-- Only use labels that actually exist in the elements above. Never invent labels.
-- If the changes are on the Home/root screen, respond: DONE
-- If you cannot find a path to the target, respond: DONE
-
-Respond with ONLY "DONE" or "TAP: <label>" — nothing else."""
-
+        # 3. Encode the screenshot for the Vision LLM
         try:
-            response = llm.invoke(prompt).content.strip()
-            print(f"  🧠 LLM decided: {response}")
+            vision_llm = get_llm(role="vision")
+            
+            with open(step_screenshot, "rb") as img_file:
+                image_b64 = base64.b64encode(img_file.read()).decode("utf-8")
+            
+            from langchain_core.messages import HumanMessage
+            message = HumanMessage(content=[
+                {"type": "text", "text": f"""You are navigating an iOS app to reach a specific screen.
+
+TASK: "{instructions}"
+FILES CHANGED: {file_list}
+NAVIGATION HINTS FROM SOURCE CODE: {nav_hints}
+
+LABELED ELEMENTS ON SCREEN:
+{labeled_elements}
+
+Look at this screenshot of the current screen. Your job:
+1. If the screen shown is ALREADY the target screen (where the code changes would be visible), respond: DONE
+2. If you need to tap something to navigate deeper, respond: TAP: <exact text visible on screen or from labeled elements>
+3. Use ONLY text/labels you can actually see in the screenshot or in the labeled elements. Never invent.
+4. If the changes affect the root/home screen, respond: DONE
+5. If you're stuck (e.g., a walkthrough/onboarding screen is blocking), try: TAP: <whatever button dismisses it>
+
+Respond with ONLY "DONE" or "TAP: <label>" — nothing else."""},
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}}
+            ])
+            
+            response = vision_llm.invoke([message]).content.strip()
+            print(f"  🧠 Vision LLM decided: {response}")
+            
         except Exception as e:
-            nav_log.append(f"Step {step+1}: LLM error: {e}")
-            print(f"  ❌ LLM error: {e}")
-            break
+            # Fallback to text-only LLM with just hierarchy if vision fails
+            print(f"  ⚠️ Vision LLM failed ({e}), falling back to text-only...")
+            try:
+                text_llm = get_llm(role="planning")
+                fallback_prompt = f"""You are navigating an iOS app. The developer modified: {file_list}
+Navigation hints: {nav_hints}
+Labeled elements on screen: {labeled_elements}
+If the target is already showing or changes are on the home screen, respond DONE. 
+Otherwise respond TAP: <label> using only labels from above. Respond with ONLY "DONE" or "TAP: <label>"."""
+                response = text_llm.invoke(fallback_prompt).content.strip()
+                print(f"  🧠 Fallback LLM decided: {response}")
+            except Exception as e2:
+                nav_log.append(f"Step {step+1}: Both LLMs failed: {e2}")
+                print(f"  ❌ Both LLMs failed: {e2}")
+                break
         
-        if response == "DONE" or response.startswith("DONE"):
+        if response.startswith("DONE"):
             nav_log.append(f"Step {step+1}: Target screen reached.")
-            print(f"  ✅ Target screen reached (or changes visible on current screen).")
+            print(f"  ✅ Target screen reached.")
             break
         elif response.startswith("TAP:"):
             label = response.replace("TAP:", "").strip().strip('"').strip("'")
@@ -505,22 +531,78 @@ Respond with ONLY "DONE" or "TAP: <label>" — nothing else."""
             
             success = run_maestro_single_tap(device_udid, workspace_path, bundle_id, label)
             if not success:
-                nav_log.append(f"  ↳ Tap failed! Element '{label}' may not be tappable.")
+                nav_log.append(f"  ↳ Tap failed!")
                 print(f"  ❌ Tap on '{label}' failed!")
                 break
             
-            time.sleep(3)  # Let the transition animation complete
+            time.sleep(3)
         else:
-            nav_log.append(f"Step {step+1}: Unexpected LLM response: {response}")
-            print(f"  ⚠️ Unexpected response: {response}")
+            nav_log.append(f"Step {step+1}: Unexpected: {response}")
+            print(f"  ⚠️ Unexpected: {response}")
             break
     
-    # Write final generated flow for logging purposes
+    # Cleanup step screenshots
+    import glob
+    for f in glob.glob(os.path.join(workspace_path, "maestro_nav_step_*.png")):
+        os.remove(f)
+    
+    # Write navigation log
     flow_path = os.path.join(workspace_path, "maestro_flow.yaml")
     with open(flow_path, "w") as f:
-        f.write(f"# Auto-generated Maestro navigation log\n# {chr(10).join(nav_log)}\n")
+        f.write(f"# Maestro navigation log\n# {chr(10).join(nav_log)}\n")
     
     return nav_log
+
+def _analyze_navigation_from_source(workspace_path: str, file_paths: list) -> str:
+    """
+    Phase 1: Analyze the modified file paths to deduce the navigation structure.
+    Uses file path conventions (Features/<Section>/<Screen>.swift) and optionally
+    reads coordinator/router files to understand the app's navigation graph.
+    """
+    hints = []
+    
+    for fp in file_paths:
+        if not fp.endswith(".swift"):
+            continue
+        
+        parts = fp.replace("\\", "/").split("/")
+        
+        # Extract feature section from path convention (e.g., Features/Movie/...)
+        for i, part in enumerate(parts):
+            if part.lower() in ("features", "scenes", "screens", "modules", "sections"):
+                if i + 1 < len(parts):
+                    feature_name = parts[i + 1]
+                    hints.append(f"Feature section: '{feature_name}'")
+                    break
+        
+        # Extract view name from filename
+        filename = parts[-1].replace(".swift", "")
+        if "View" in filename or "Screen" in filename or "Controller" in filename:
+            hints.append(f"Target view: '{filename}'")
+        elif "Cell" in filename or "Row" in filename:
+            hints.append(f"Modified list item: '{filename}' (likely visible on a list screen)")
+        
+        # Check if it's a detail vs. list view
+        if "Detail" in filename or "Edit" in filename:
+            hints.append("This is a DETAIL screen — requires tapping into a list item first")
+        elif "Home" in filename or "Main" in filename or "Root" in filename:
+            hints.append("This is the HOME/ROOT screen — no navigation needed")
+        elif "Tab" in filename:
+            hints.append("This modifies tab bar — visible on root screen")
+    
+    # Try to find navigation coordinators or routers for deeper insight
+    try:
+        import glob
+        coordinators = glob.glob(os.path.join(workspace_path, "**/*Coordinator*.swift"), recursive=True)
+        coordinators += glob.glob(os.path.join(workspace_path, "**/*Router*.swift"), recursive=True)
+        coordinators += glob.glob(os.path.join(workspace_path, "**/*TabBar*.swift"), recursive=True)
+        
+        if coordinators:
+            hints.append(f"Navigation files found: {', '.join(os.path.basename(c) for c in coordinators[:3])}")
+    except Exception:
+        pass
+    
+    return "; ".join(hints) if hints else "No clear navigation hints from source code."
 
 def validate_ui_with_vision(screenshot_path: str, design_constraints: str) -> dict:
     """
