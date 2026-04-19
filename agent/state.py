@@ -24,3 +24,5 @@ class AgentState(TypedDict):
     opencode_session_id: str    # Unique session token to cleanly resume PR review comments
     screenshot_path: str        # Local workspace path to the generated UI pixel verification screenshot
     video_path: str             # Local workspace path to the .mp4 runtime video telemetry
+    device_udid: str            # The active iOS Simulator UDID used for Maestro navigation
+    bundle_id: str              # The app's CFBundleIdentifier for Maestro interactions

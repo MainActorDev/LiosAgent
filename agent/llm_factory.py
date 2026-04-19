@@ -19,8 +19,9 @@ def get_llm(role: str = "default") -> BaseChatModel:
         # Many GLM endpoints (like ZhipuAI) offer OpenAI compatibility
         from langchain_openai import ChatOpenAI
         
-        # Get base URL, default to ZhipuAI endpoint if not provided
-        base_url = os.getenv("GLM_API_BASE", "https://open.bigmodel.cn/api/paas/v4/")
+        # Get base URL with per-role override support (e.g., GLM_API_BASE_VISION)
+        base_url_env_var = f"GLM_API_BASE_{role.upper()}"
+        base_url = os.getenv(base_url_env_var, os.getenv("GLM_API_BASE", "https://open.bigmodel.cn/api/paas/v4/"))
         api_key = os.getenv("GLM_API_KEY")
         
         if not api_key:
