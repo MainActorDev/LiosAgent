@@ -717,102 +717,77 @@ Respond with ONLY "DONE", "TAP: <label>", or "SCROLL: DOWN/UP"."""
 
 def _analyze_navigation_from_source(workspace_path: str, file_paths: list) -> str:
     """
-    Phase 1: Analyze the modified file paths AND their content to deduce:
-    - Which feature section the view belongs to
-    - Whether the view is inside a ScrollView/List (needs scrolling)
-    - Whether it's a root, detail, or nested screen
-    - Navigation graph structure from coordinators/routers
+    Phase 1: Use the Planning LLM to analyze the modified file paths AND their content 
+    to deduce navigation hints. This is framework-agnostic and adapts to custom 
+    declarative UI frameworks (like Construkt).
     """
-    hints = []
+    from agent.llm_factory import get_llm
     
+    file_contents = ""
+    
+    # 1. Gather modified file contents
     for fp in file_paths:
         if not fp.endswith(".swift"):
             continue
         
-        parts = fp.replace("\\", "/").split("/")
-        
-        # Extract feature section from path convention (e.g., Features/Movie/...)
-        for i, part in enumerate(parts):
-            if part.lower() in ("features", "scenes", "screens", "modules", "sections"):
-                if i + 1 < len(parts):
-                    feature_name = parts[i + 1]
-                    hints.append(f"Feature section: '{feature_name}'")
-                    break
-        
-        # Extract view name from filename
-        filename = parts[-1].replace(".swift", "")
-        if "View" in filename or "Screen" in filename or "Controller" in filename:
-            hints.append(f"Target view: '{filename}'")
-        elif "Cell" in filename or "Row" in filename:
-            hints.append(f"Modified list item: '{filename}' (likely visible on a list screen)")
-        
-        # Check if it's a detail vs. list view (from filename)
-        if "Detail" in filename or "Edit" in filename:
-            hints.append("This is a DETAIL screen — requires tapping into a list item first")
-        elif "Home" in filename or "Main" in filename or "Root" in filename:
-            hints.append("This is the HOME/ROOT screen — no navigation needed")
-        elif "Tab" in filename:
-            hints.append("This modifies tab bar — visible on root screen")
-        
-        # ─── Read the actual file content to detect scroll containers ───
         full_path = fp if os.path.isabs(fp) else os.path.join(workspace_path, fp)
         try:
             if os.path.exists(full_path):
                 with open(full_path, "r", errors="ignore") as f:
                     content = f.read()
-                
-                # Detect scroll containers
-                scroll_indicators = ["ScrollView", "List {", "List(", "UIScrollView", 
-                                     "UITableView", "UICollectionView", "LazyVStack", "LazyHStack",
-                                     "ForEach"]
-                found_scroll = [s for s in scroll_indicators if s in content]
-                if found_scroll:
-                    hints.append(f"View uses scrollable container: {', '.join(found_scroll)} — may need SCROLL to reach target element")
-                
-                # Detect if it's a Section/Group inside a List (often at the bottom)
-                if "Section" in content and any(s in content for s in ["List", "Form"]):
-                    hints.append("View has Sections inside List/Form — target section may be off-screen, scroll needed")
-                
-                # Detect navigation links (tells us this view pushes to other screens)
-                if "NavigationLink" in content or "NavigationDestination" in content:
-                    hints.append("View contains NavigationLinks — may lead to deeper screens")
-                
-                # Extract lios-* accessibility identifiers injected by the Coder node
-                import re
-                lios_ids = re.findall(r'accessibilityIdentifier\(["\']?(lios-[a-zA-Z0-9-]+)["\']?\)', content)
-                if lios_ids:
-                    hints.append(f"Agent-injected identifiers in this file: {', '.join(lios_ids)} — use these as reliable Maestro resource-id targets")
-                    
+                    # Truncate long files to keep prompt manageable
+                    if len(content) > 3000:
+                        content = content[:1500] + "\n...[truncated]...\n" + content[-1500:]
+                    file_contents += f"\n--- {fp} ---\n{content}\n"
         except Exception:
             pass
     
-    # ─── Scan for app-level navigation structure ───
+    # 2. Gather navigation graph structure (Coordinators/Routers)
     try:
         import glob
         nav_files = []
-        for pattern in ["*Coordinator*.swift", "*Router*.swift", "*TabBar*.swift", 
-                        "*Navigator*.swift", "*AppDelegate*.swift", "*SceneDelegate*.swift"]:
+        for pattern in ["*Coordinator*.swift", "*Router*.swift", "*TabBar*.swift"]:
             nav_files += glob.glob(os.path.join(workspace_path, "**", pattern), recursive=True)
         
-        if nav_files:
-            hints.append(f"Navigation files: {', '.join(os.path.basename(c) for c in nav_files[:5])}")
-            
-            # Read the first coordinator/router to understand tab structure
-            for nf in nav_files[:2]:
-                try:
-                    with open(nf, "r", errors="ignore") as f:
-                        nav_content = f.read()
-                    # Extract tab names from tab bar setup
-                    import re
-                    tab_matches = re.findall(r'(?:tabItem|Tab|title).*?["\']([^"\'\']+)["\']', nav_content)
-                    if tab_matches:
-                        hints.append(f"App tabs: {', '.join(tab_matches[:6])}")
-                except Exception:
-                    pass
+        for nf in nav_files[:2]:  # Limit to 2 to avoid blowing up context
+            try:
+                with open(nf, "r", errors="ignore") as f:
+                    content = f.read()
+                    if len(content) > 2000:
+                        content = content[:2000] + "\n...[truncated]"
+                    file_contents += f"\n--- {os.path.basename(nf)} (Navigation Graph) ---\n{content}\n"
+            except Exception:
+                pass
     except Exception:
         pass
-    
-    return "; ".join(hints) if hints else "No clear navigation hints from source code."
+
+    if not file_contents:
+        return "No clear navigation hints from source code."
+
+    prompt = f"""You are an expert iOS tester using the Maestro framework.
+The developer has modified the following Swift files. Analyze them to provide navigation hints for a test agent.
+
+CRITICAL INSTRUCTION: Different projects use different UI frameworks (SwiftUI, UIKit, or custom frameworks like Construkt which might use CKScrollView or other custom declarative syntax). Adapt directly to what you see in the code.
+
+Provide a highly concise summary (2-3 sentences) focusing on:
+1. Location: What screen or feature is this? (e.g., Tab, Root, Detail)
+2. Scrolling: Are the modified elements inside a scrollable container (e.g. ScrollView, List, Table, CKScrollView)? Must the agent scroll to reach it?
+3. Targets: Are there any specific accessibilityIdentifiers or labels the agent should tap to reach this view?
+
+File contents:
+{file_contents}
+
+Return ONLY the concatenated text of your hints. No conversational filler."""
+
+    try:
+        llm = get_llm(role="planning")
+        response = llm.invoke(prompt).content.strip()
+        return response
+    except Exception as e:
+        print(f"  ⚠️ Intelligent source analysis failed: {e}")
+        # Fallback to basic path heuristics
+        hints = [f"Modified: {os.path.basename(p)}" for p in file_paths]
+        return "Source analysis failed. Files: " + ", ".join(hints)
 
 def validate_ui_with_vision(screenshot_path: str, design_constraints: str) -> dict:
     """
