@@ -339,25 +339,15 @@ Ensure you fulfill every aspect of the blueprint."""
             "edit": {
                 "*": "allow"
             }
-        },
-        "mcp": {
-            "serena": {
-                "command": "uvx",
-                "args": [
-                    "--from", "git+https://github.com/oraios/serena",
-                    "serena",
-                    "start-mcp-server",
-                    "--context", "ide",
-                    "--project-from-cwd"
-                ]
-            }
         }
     }
     
     if has_figma_link and os.environ.get("FIGMA_ACCESS_TOKEN"):
+        opencode_config["mcp"] = {}
         opencode_config["mcp"]["FigmaMCP"] = {
-            "command": "npx",
-            "args": ["-y", "github:glips/figma-context-mcp"],
+            "type": "local",
+            "command": ["npx", "-y", "github:glips/figma-context-mcp"],
+            "enabled": True,
             "env": {
                 "FIGMA_ACCESS_TOKEN": os.environ.get("FIGMA_ACCESS_TOKEN")
             }
