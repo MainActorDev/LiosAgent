@@ -659,7 +659,7 @@ def build_graph(checkpointer=None):
                 comment += "\n### 📱 Simulator UX Snapshot\n"
                 comment += f"![Simulator Capture](https://raw.githubusercontent.com/{repo_full_name}/{branch_name}/{rendered_shot})\n"
                 
-            comment += f"\n<details><summary><b>Git Push Receipt</b></summary>\n\n```text\n{push_msg}\n```\n</details>\n\nYou can now open a Pull Request!"
+            comment += f"\n<details><summary><b>Git Push Receipt</b></summary>\n\n```text\n{push_msg}\n```\n</details>\n\n### 🚀 [Click here to quickly open a Pull Request!](https://github.com/{repo_full_name}/compare/{branch_name}?expand=1)"
         
         if repo_full_name and installation_id:
             post_github_comment(repo_full_name, task_id, installation_id, comment)
