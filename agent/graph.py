@@ -313,6 +313,11 @@ RULES:
     print(f"👨‍💻 UI Sub-Agent is generating and applying code to {workspace_path}...")
     result = agent_executor.invoke({"messages": [("user", prompt)]}, config={"recursion_limit": 10})
     
+    for msg in result.get("messages", []):
+        print(f"[{msg.type.upper()}] {msg.content}")
+        if hasattr(msg, "tool_calls") and msg.tool_calls:
+            print(f"🛠️ Sub-Agent requested tool execution: {msg.tool_calls}")
+            
     # Chain to network sub-agent if both domains are active
     domains = state.get("active_subagents", [])
     next_history = "UI Sub-Agent Complete."
@@ -362,6 +367,12 @@ RULES:
         
     print(f"👨‍💻 Network Sub-Agent is generating and applying code to {workspace_path}...")
     result = agent_executor.invoke({"messages": [("user", prompt)]}, config={"recursion_limit": 10})
+    
+    for msg in result.get("messages", []):
+        print(f"[{msg.type.upper()}] {msg.content}")
+        if hasattr(msg, "tool_calls") and msg.tool_calls:
+            print(f"🛠️ Sub-Agent requested tool execution: {msg.tool_calls}")
+            
     return {"history": ["Network Sub-Agent Complete."]}
 
 def general_coder_node(state: AgentState):
@@ -397,6 +408,12 @@ IMPORTANT RULES:
         
     print(f"👨‍💻 General Coder is generating and applying code to {workspace_path}...")
     result = agent_executor.invoke({"messages": [("user", prompt)]}, config={"recursion_limit": 10})
+    
+    for msg in result.get("messages", []):
+        print(f"[{msg.type.upper()}] {msg.content}")
+        if hasattr(msg, "tool_calls") and msg.tool_calls:
+            print(f"🛠️ Sub-Agent requested tool execution: {msg.tool_calls}")
+            
     return {"history": ["General Coder Complete (Surgical patching via tool binding)."]}
 
 def validator_node(state: AgentState):
