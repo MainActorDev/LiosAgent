@@ -81,8 +81,26 @@ Return your findings as a structured Markdown report with headers for each categ
     finally:
         await manager.cleanup()
         
+    # Read Agent Skills and Repo Rules
+    agent_skills = ""
+    if workspace_path:
+        config_path = os.path.join(workspace_path, ".lios-config.yml")
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                agent_skills += f"--- .lios-config.yml ---\n{f.read()}\n\n"
+                
+        import glob
+        skills_path = os.path.join(workspace_path, ".agent", "skills", "*.md")
+        for skill_file in glob.glob(skills_path):
+            with open(skill_file, "r") as f:
+                agent_skills += f"--- {os.path.basename(skill_file)} ---\n{f.read()}\n\n"
+                
+    if not agent_skills.strip():
+        agent_skills = "No specific rules found. Follow standard iOS best practices."
+        
     return {
         "mcp_context": context_data,
+        "agent_skills": agent_skills,
         "history": ["Context Aggregator Node executed. External tools queried."]
     }
 
@@ -90,14 +108,7 @@ def planner_node(state: AgentState):
     llm = get_llm(role="planning").with_structured_output(FeatureBlueprint)
     instructions = state.get("instructions", "")
     mcp_context = state.get("mcp_context", "None")
-    workspace_path = state.get("workspace_path", "")
-    
-    repo_conventions = ""
-    if workspace_path:
-        config_path = os.path.join(workspace_path, ".lios-config.yml")
-        if os.path.exists(config_path):
-            with open(config_path, "r") as f:
-                repo_conventions = f.read()
+    agent_skills = state.get("agent_skills", "No specific rules found.")
     
     prompt = f"""You are the Lios Architect Agent. Design a strict architecture plan for this issue:
 {instructions}
@@ -106,7 +117,7 @@ External System Context:
 {mcp_context}
 
 Repository Conventions & Hard Rules:
-{repo_conventions if repo_conventions else "No specific rules found. Follow standard iOS best practices."}
+{agent_skills}
 
 Ensure you mandate TDD by defining the XCTest suites.
 """
@@ -201,6 +212,7 @@ def ui_subagent_node(state: AgentState):
     llm = get_llm(role="coding")
     workspace_path = state.get("workspace_path")
     blueprint = state.get("blueprint", {})
+    agent_skills = state.get("agent_skills", "No custom rules found.")
     
     tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file]
     llm_with_tools = llm.bind_tools(tools)
@@ -213,6 +225,10 @@ Task: {state.get('instructions')}
 
 Blueprint:
 {blueprint}
+
+TEAM RULES & AGENT SKILLS:
+{agent_skills}
+
 
 Focus ONLY on files related to Views, Screens, Components, and Cells.
 Use Construkt design tokens (bgPrimary, textPrimary, etc.) for all colors and spacing.
@@ -244,6 +260,7 @@ def network_subagent_node(state: AgentState):
     llm = get_llm(role="coding")
     workspace_path = state.get("workspace_path")
     blueprint = state.get("blueprint", {})
+    agent_skills = state.get("agent_skills", "No custom rules found.")
     
     tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file]
     llm_with_tools = llm.bind_tools(tools)
@@ -256,6 +273,10 @@ Task: {state.get('instructions')}
 
 Blueprint:
 {blueprint}
+
+TEAM RULES & AGENT SKILLS:
+{agent_skills}
+
 
 Focus ONLY on files related to Services, Repositories, Models, APIs, and DTOs.
 Follow clean architecture patterns: Repository -> Service -> DTO -> Domain Model.
@@ -276,6 +297,7 @@ def general_coder_node(state: AgentState):
     llm = get_llm(role="coding")
     workspace_path = state.get("workspace_path")
     blueprint = state.get("blueprint", {})
+    agent_skills = state.get("agent_skills", "No custom rules found.")
     
     tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file]
     llm_with_tools = llm.bind_tools(tools)
@@ -286,6 +308,10 @@ Your task: {state.get('instructions')}
 
 Blueprint:
 {blueprint}
+
+TEAM RULES & AGENT SKILLS:
+{agent_skills}
+
 
 IMPORTANT RULES:
 1. For EXISTING files: First use `read_workspace_file_lines` to view the target area with line numbers.
