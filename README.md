@@ -12,10 +12,10 @@ The platform operates purely via Slack and GitHub Webhooks, ensuring developers 
 │    Vetting → Workspace Init → Context Aggregator → Planner → HITL  │
 ├─────────────────────────────────────────────────────────────────────┤
 │  ⚡ EXECUTION PHASE                                                 │
-│    Router → [ UI Sub-Agent | Network Sub-Agent | General Coder ]   │
+│    Architect Coder → Headless OpenCode CLI (AST Editing Sandbox)   │
 ├─────────────────────────────────────────────────────────────────────┤
 │  🔍 REVIEW PHASE                                                    │
-│    Build Validator → UI Vision Check → Push PR → PR Review Loop    │
+│    Build Validator Bypass → UI Vision Check → Push PR              │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -37,21 +37,14 @@ Gathers intelligence, understands the task, and produces an architectural bluepr
 
 ### ⚡ Phase 2: Execution
 
-Writes code through domain-specialized sub-agents using **surgical line-range patching** instead of full-file rewrites.
+Writes code through a stateless integration with the headless `opencode-ai` CLI. LangGraph acts strictly as the **Manager**, while OpenCode acts as the **Executor**.
 
 | Sub-Node | Purpose |
 |----------|---------|
-| **Router** | Analyzes the blueprint's architecture components and file paths to classify the task into domains (`ui`, `network`, or `general`), then dispatches to the appropriate sub-agent(s). |
-| **UI Sub-Agent** | Specialist for SwiftUI/UIKit Views, Construkt design tokens, Screens, and Components. Runs with targeted `.agent/skills/` markdown injected directly into its system prompt. |
-| **Network Sub-Agent** | Specialist for API Services, Repositories, DTOs, and Data Models. Follows clean architecture patterns (Repository → Service → DTO → Domain Model), guided by team rules. |
-| **General Coder** | Fallback for tasks that don't fit UI or Network domains. Equipped with the same dynamic rule context. |
+| **Architect Coder** | Translates the blueprint into a massive Prompt Payload and injects safety guardrails (`opencode.json` blocklisting `rm -rf`) into the isolated workspace. |
+| **OpenCode CLI** | Spawned as a streaming subprocess via Python. Handles AST parsing, surgical line replacements (`apply_patch`), and native compilation validation without LangGraph intervention. |
 
-> If both UI and Network domains are detected, they run **sequentially** (UI first → Network second) before reaching the Review phase.
-
-**Surgical Code Patching Tools:**
-- `read_workspace_file_lines` — Reads a specific line range with line numbers prepended (pre-patch recon).
-- `patch_workspace_file` — Surgically replaces only the target line range, leaving the rest untouched.
-- `write_workspace_file` — Reserved exclusively for creating **new** files.
+**Key Advantage:** OpenCode intrinsically loops upon itself if it introduces typographical compilation errors (`verification-before-completion`). LangGraph only parses the final output state.
 
 ---
 
@@ -61,7 +54,7 @@ Validates the generated code against the compiler, the design system, and human 
 
 | Sub-Node | Purpose |
 |----------|---------|
-| **Build Validator** | Runs `xcodebuild` through **RTK** for token-compressed logs (~90% reduction). Implements a **3-strike policy**: after 3 failed retries, triggers `git clean -fd && git checkout -- .` to purge corrupted state. |
+| **Build Validator Bypass** | Assumes the code physically compiles cleanly via OpenCode's enclosed native compilation loop, bypassing legacy standalone `xcodebuild` Python extraction. |
 | **UI Vision Check** | Boots the iOS Simulator via `xcrun simctl`, captures a screenshot, and sends it to a **Vision LLM** alongside design constraints for PASS/FAIL evaluation. Only activates when the blueprint contains UI-tagged components. |
 | **Push** | Commits the agent's changes and pushes the branch to GitHub as a pull request. |
 | **PR Review Loop** | When a human developer leaves an **inline code review comment** on the agent's PR, the orchestrator clones the PR branch, re-triggers the Execution → Review pipeline with the comment as instructions, and pushes the fix directly to the existing PR. |
@@ -73,9 +66,9 @@ The orchestrator relies on several external CLI modules. Please ensure these are
 - **Python 3.10+**
 - **Xcode** (with Command Line Tools)
 - **NVM / Node** (For the `npx xcodebuildmcp` client connection)
-- **RTK Log Distiller** (Crucial for token savings!)
+- **NPM / OpenCode CLI** (For native Agentic Execution)
   ```bash
-  brew install rtk
+  npm i -g opencode-ai@latest
   ```
 
 ### 2. Environment Variables
@@ -151,17 +144,14 @@ Lios-Agent/
 | Decision | Rationale |
 |----------|-----------|
 | **APFS Copy-on-Write** | Instant 0.1s workspace duplication on macOS. Allows 10+ concurrent tasks. |
-| **RTK for all CLI output** | Reduces 30,000-line xcodebuild output to ~20 tokens. Saves 60-90% on LLM billing. |
+| **Headless OpenCode Run** | Delegates extremely tricky AST patching algorithms to a specialized 1st-party CLI. |
 | **Pydantic FeatureBlueprint** | Forces deterministic JSON, preventing freeform text hallucination in planning. |
-| **Sub-Agent Swarms** | Domain-specific system prompts (UI vs Network) reduce cognitive load per LLM call. |
-| **Line-range patching** | Prevents the AI from rewriting entire 3000-line files and destroying unrelated code. |
+| **Auto-Destructing Workspaces** | Aggressive garbage collection (`shutil.rmtree`) happens immediately after a successful PR to prevent SPM / DerivedData bloat. |
 | **Vision UI Validation** | Catches pixel-perfect regressions that pass compilation but look visually broken. |
 | **Async Context Aggregator** | MCP connections require `AsyncExitStack` for persistent stdio pipe lifecycle. |
 
 ## ⚠️ Known Limitations
 When scaling to a production team, be aware of the following system bounds:
 1. **macOS Only**: APFS Copy-on-Write and `xcrun simctl` require macOS. Linux deployment requires alternative workspace strategies.
-2. **RTK Dependency**: If `rtk` is not installed, the Validator will return a `FATAL ERROR` and halt execution (fail-safe, not fail-silent).
-3. **Vision Model Required**: The UI Vision Check requires a multimodal LLM (e.g., GPT-4o, Claude Sonnet). If your configured model doesn't support image input, the vision check will gracefully skip.
-4. **Simulator Availability**: The UI Vision Check requires at least one iOS Simulator runtime installed. Run `xcrun simctl list devices` to verify.
-5. **Sequential Sub-Agents**: UI and Network sub-agents run sequentially (UI first, then Network). True parallel execution would require LangGraph's `parallel_execute` which is a future enhancement.
+2. **Vision Model Required**: The UI Vision Check requires a multimodal LLM (e.g., GPT-4o, Claude Sonnet). If your configured model doesn't support image input, the vision check will gracefully skip.
+3. **Simulator Availability**: The UI Vision Check requires at least one iOS Simulator runtime installed. Run `xcrun simctl list devices` to verify.
