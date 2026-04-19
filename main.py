@@ -94,23 +94,32 @@ def handle_approve_action(ack, body, logger, say):
     
     say(f"✅ Executing final push for Task #{issue_num} by <@{user}>")
     
-    async def resume_graph_async():
+    def resume_graph():
         try:
             from agent.graph import build_graph
             graph_app = build_graph()
             config = {"configurable": {"thread_id": f"issue-{issue_num}"}}
             
+            # Verify checkpoint exists before attempting resume
+            state = graph_app.get_state(config)
+            if not state or not state.values:
+                print(f"⚠️ No checkpoint found for issue-{issue_num}. Cannot resume.")
+                return
+                
             print(f"Resuming LangGraph execution for Issue {issue_num}...")
-            await graph_app.ainvoke(None, config=config)
+            print(f"  Checkpoint next steps: {state.next}")
+            
+            # MemorySaver is a plain Python dict — safe to access from any thread/loop
+            import asyncio
+            asyncio.run(graph_app.ainvoke(None, config=config))
             print("LangGraph final step complete.")
         except Exception as e:
+            import traceback
             print(f"Failed to resume LangGraph: {e}")
-    
-    # Schedule on the EXISTING event loop (where the checkpointer state lives)
-    # asyncio.run() would create a new loop and lose the checkpoint
-    import asyncio
-    loop = asyncio.get_event_loop()
-    asyncio.run_coroutine_threadsafe(resume_graph_async(), loop)
+            traceback.print_exc()
+            
+    import threading
+    threading.Thread(target=resume_graph, daemon=True).start()
 
 # --------------------------------------------------------------------------
 # FastAPI Endpoints
