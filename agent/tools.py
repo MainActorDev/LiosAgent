@@ -439,11 +439,30 @@ def navigate_to_target_view(device_udid: str, workspace_path: str, bundle_id: st
     components = blueprint.get("architecture_components", [])
     file_list = ", ".join(str(f.get("filepath", "")) for f in files)
     
+    print(f"  📍 Target: {file_list}")
+    print(f"  🏗️ Components: {', '.join(components)}")
+    
     for step in range(max_steps):
         # 1. Dump the live hierarchy
         hierarchy = get_maestro_hierarchy(device_udid)
         if not hierarchy:
             nav_log.append(f"Step {step+1}: Failed to read hierarchy, stopping navigation.")
+            print(f"  ❌ Step {step+1}: Hierarchy dump returned empty!")
+            break
+        
+        # Filter to only elements with meaningful text labels for cleaner LLM context
+        meaningful_lines = []
+        for line in hierarchy.split("\n"):
+            if "accessibilityText=" in line or "text=" in line or "resource-id=" in line:
+                meaningful_lines.append(line)
+        
+        filtered_hierarchy = "\n".join(meaningful_lines) if meaningful_lines else hierarchy[:2000]
+        interactive_count = len(meaningful_lines)
+        print(f"  🔍 Step {step+1}: Hierarchy has {interactive_count} labeled elements")
+        
+        if interactive_count == 0:
+            nav_log.append(f"Step {step+1}: No labeled/interactive elements found on screen. Stopping.")
+            print(f"  ⚠️ No tappable elements with text labels found!")
             break
         
         # 2. Ask the LLM what to tap (or if we're already there)
@@ -455,13 +474,13 @@ TASK: The developer modified these files to implement the following request:
 Files changed: {file_list}
 Architecture components: {', '.join(components)}
 
-CURRENT SCREEN HIERARCHY (real elements visible right now):
-{hierarchy[:3000]}
+LABELED ELEMENTS ON CURRENT SCREEN:
+{filtered_hierarchy}
 
 INSTRUCTIONS:
 - If the target screen (where the changes would be visible) is ALREADY showing, respond with exactly: DONE
 - If you need to tap an element to navigate deeper, respond with exactly: TAP: <exact element label>
-- Only use labels that actually exist in the hierarchy above. Never invent labels.
+- Only use labels that actually exist in the elements above. Never invent labels.
 - If the changes are on the Home/root screen, respond: DONE
 - If you cannot find a path to the target, respond: DONE
 
@@ -469,12 +488,15 @@ Respond with ONLY "DONE" or "TAP: <label>" — nothing else."""
 
         try:
             response = llm.invoke(prompt).content.strip()
+            print(f"  🧠 LLM decided: {response}")
         except Exception as e:
             nav_log.append(f"Step {step+1}: LLM error: {e}")
+            print(f"  ❌ LLM error: {e}")
             break
         
         if response == "DONE" or response.startswith("DONE"):
             nav_log.append(f"Step {step+1}: Target screen reached.")
+            print(f"  ✅ Target screen reached (or changes visible on current screen).")
             break
         elif response.startswith("TAP:"):
             label = response.replace("TAP:", "").strip().strip('"').strip("'")
@@ -484,11 +506,13 @@ Respond with ONLY "DONE" or "TAP: <label>" — nothing else."""
             success = run_maestro_single_tap(device_udid, workspace_path, bundle_id, label)
             if not success:
                 nav_log.append(f"  ↳ Tap failed! Element '{label}' may not be tappable.")
+                print(f"  ❌ Tap on '{label}' failed!")
                 break
             
             time.sleep(3)  # Let the transition animation complete
         else:
             nav_log.append(f"Step {step+1}: Unexpected LLM response: {response}")
+            print(f"  ⚠️ Unexpected response: {response}")
             break
     
     # Write final generated flow for logging purposes
