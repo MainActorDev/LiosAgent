@@ -283,7 +283,8 @@ def ui_subagent_node(state: AgentState):
     agent_skills = state.get("agent_skills", "No custom rules found.")
     
     tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file]
-    llm_with_tools = llm.bind_tools(tools)
+    from langgraph.prebuilt import create_react_agent
+    agent_executor = create_react_agent(llm, tools=tools)
     
     prompt = f"""You are a Senior iOS UI/UX Engineer specialized in pixel-perfect SwiftUI and UIKit development.
 You ONLY work on SwiftUI Views, UIKit ViewControllers, Construkt design tokens, and UI components.
@@ -309,7 +310,8 @@ RULES:
     if state.get("compiler_errors"):
         prompt += f"\n\n🚨 PREVIOUS ERRORS:\n{state.get('compiler_errors')[-1]}\nFix only UI-related errors."
         
-    result = llm_with_tools.invoke(prompt)
+    print(f"👨‍💻 UI Sub-Agent is generating and applying code to {workspace_path}...")
+    result = agent_executor.invoke({"messages": [("user", prompt)]}, config={"recursion_limit": 10})
     
     # Chain to network sub-agent if both domains are active
     domains = state.get("active_subagents", [])
@@ -331,7 +333,8 @@ def network_subagent_node(state: AgentState):
     agent_skills = state.get("agent_skills", "No custom rules found.")
     
     tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file]
-    llm_with_tools = llm.bind_tools(tools)
+    from langgraph.prebuilt import create_react_agent
+    agent_executor = create_react_agent(llm, tools=tools)
     
     prompt = f"""You are a Senior iOS Data Systems Engineer specialized in robust Network and API layers.
 You ONLY work on API Services, Repositories, Data Models, DTOs, and Networking logic.
@@ -357,7 +360,8 @@ RULES:
     if state.get("compiler_errors"):
         prompt += f"\n\n🚨 PREVIOUS ERRORS:\n{state.get('compiler_errors')[-1]}\nFix only data/network-related errors."
         
-    result = llm_with_tools.invoke(prompt)
+    print(f"👨‍💻 Network Sub-Agent is generating and applying code to {workspace_path}...")
+    result = agent_executor.invoke({"messages": [("user", prompt)]}, config={"recursion_limit": 10})
     return {"history": ["Network Sub-Agent Complete."]}
 
 def general_coder_node(state: AgentState):
@@ -368,7 +372,8 @@ def general_coder_node(state: AgentState):
     agent_skills = state.get("agent_skills", "No custom rules found.")
     
     tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file]
-    llm_with_tools = llm.bind_tools(tools)
+    from langgraph.prebuilt import create_react_agent
+    agent_executor = create_react_agent(llm, tools=tools)
     
     prompt = f"""You are a versatile Staff iOS Software Engineer working in workspace: {workspace_path}
 
@@ -390,7 +395,8 @@ IMPORTANT RULES:
     if state.get("compiler_errors"):
         prompt += f"\n\n🚨 PREVIOUS BUILD FAILED WITH ERRORS:\n{state.get('compiler_errors')[-1]}\nUse read_workspace_file_lines to find the broken lines, then patch_workspace_file to fix them."
         
-    result = llm_with_tools.invoke(prompt)
+    print(f"👨‍💻 General Coder is generating and applying code to {workspace_path}...")
+    result = agent_executor.invoke({"messages": [("user", prompt)]}, config={"recursion_limit": 10})
     return {"history": ["General Coder Complete (Surgical patching via tool binding)."]}
 
 def validator_node(state: AgentState):
