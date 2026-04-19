@@ -681,7 +681,7 @@ def await_clarification_node(state: AgentState):
     """Placeholder node to freeze LangGraph while waiting for developer comments."""
     return {"history": ["Awaiting clarification from GitHub thread..."]}
 
-def build_graph():
+def build_graph(checkpointer=None):
     """Compiles the LangGraph State Machine."""
     graph = StateGraph(AgentState)
     
@@ -776,6 +776,6 @@ def build_graph():
     graph.add_edge("push", END)
     
     # Attach memory so the graph can be paused waiting for Slack human approval
-    app = graph.compile(checkpointer=GLOBAL_CHECKPOINTER, interrupt_before=["await_clarification", "router", "push"])
+    app = graph.compile(checkpointer=checkpointer, interrupt_before=["await_clarification", "router", "push"])
     
     return app

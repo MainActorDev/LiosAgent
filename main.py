@@ -12,6 +12,23 @@ load_dotenv()
 # Initialize FastAPI
 fastapi_app = FastAPI(title="Lios-Agent")
 
+# Global checkpointer for LangGraph
+GLOBAL_CHECKPOINTER = None
+GLOBAL_EVENT_LOOP = None
+
+@fastapi_app.on_event("startup")
+async def startup_event():
+    global GLOBAL_CHECKPOINTER, GLOBAL_EVENT_LOOP
+    import asyncio
+    GLOBAL_EVENT_LOOP = asyncio.get_running_loop()
+    
+    import aiosqlite
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+    
+    db_path = os.path.join(os.path.dirname(__file__), "state.db")
+    conn = await aiosqlite.connect(db_path)
+    GLOBAL_CHECKPOINTER = AsyncSqliteSaver(conn)
+
 # Initialize Slack App
 # Note: Requires SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET in .env
 slack_app = App(
@@ -92,16 +109,17 @@ def handle_approve_action(ack, body, logger, say):
     issue_num = body["actions"][0]["value"]
     logger.info(f"PR Approved Action Triggered by {user} for issue {issue_num}")
     
-    say(f"✅ Executing final push for Task #{issue_num} by <@{user}>")
+    ay_msg = f"✅ Executing final push for Task #{issue_num} by <@{user}>"
+    say(ay_msg)
     
-    def resume_graph():
+    async def resume_graph_async():
         try:
             from agent.graph import build_graph
-            graph_app = build_graph()
+            graph_app = build_graph(GLOBAL_CHECKPOINTER)
             config = {"configurable": {"thread_id": f"issue-{issue_num}"}}
             
             # Verify checkpoint exists before attempting resume
-            state = graph_app.get_state(config)
+            state = await graph_app.aget_state(config)
             if not state or not state.values:
                 print(f"⚠️ No checkpoint found for issue-{issue_num}. Cannot resume.")
                 return
@@ -109,17 +127,18 @@ def handle_approve_action(ack, body, logger, say):
             print(f"Resuming LangGraph execution for Issue {issue_num}...")
             print(f"  Checkpoint next steps: {state.next}")
             
-            # MemorySaver is a plain Python dict — safe to access from any thread/loop
-            import asyncio
-            asyncio.run(graph_app.ainvoke(None, config=config))
+            await graph_app.ainvoke(None, config=config)
             print("LangGraph final step complete.")
         except Exception as e:
             import traceback
             print(f"Failed to resume LangGraph: {e}")
             traceback.print_exc()
             
-    import threading
-    threading.Thread(target=resume_graph, daemon=True).start()
+    if GLOBAL_EVENT_LOOP and GLOBAL_EVENT_LOOP.is_running():
+        import asyncio
+        asyncio.run_coroutine_threadsafe(resume_graph_async(), GLOBAL_EVENT_LOOP)
+    else:
+        print("⚠️ GLOBAL_EVENT_LOOP is not set or running! Cannot resume async graph.")
 
 # --------------------------------------------------------------------------
 # FastAPI Endpoints
@@ -190,7 +209,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
             async def run_agent_workflow():
                 try:
                     from agent.graph import build_graph
-                    graph_app = build_graph()
+                    graph_app = build_graph(GLOBAL_CHECKPOINTER)
                     config = {"configurable": {"thread_id": f"issue-{issue_num}"}}
                     
                     if action == "edited":
@@ -234,7 +253,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
             async def resume_from_comment():
                 try:
                     from agent.graph import build_graph
-                    graph_app = build_graph()
+                    graph_app = build_graph(GLOBAL_CHECKPOINTER)
                     config = {"configurable": {"thread_id": f"issue-{issue_num}"}}
                     state = graph_app.get_state(config)
                     
@@ -287,7 +306,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
                     subprocess.run(["git", "checkout", pr_branch], cwd=workspace_path, check=True, capture_output=True)
                     
                     # 2. Build a focused graph execution with the review as instructions
-                    graph_app = build_graph()
+                    graph_app = build_graph(GLOBAL_CHECKPOINTER)
                     review_instructions = f"""PR Review Fix Request:
 File: {file_path}
 Diff Context:
