@@ -26,3 +26,4 @@ class AgentState(TypedDict):
     video_path: str             # Local workspace path to the .mp4 runtime video telemetry
     device_udid: str            # The active iOS Simulator UDID used for Maestro navigation
     bundle_id: str              # The app's CFBundleIdentifier for Maestro interactions
+    halted: bool                # Indicates if the workflow paused due to a fatal error/rollback

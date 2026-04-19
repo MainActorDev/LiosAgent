@@ -828,7 +828,9 @@ def build_graph(checkpointer=None):
             except Exception as e:
                 print(f"Failed to auto-destruct workspace: {e}")
             
-        return {"history": ["Code pushed to remote repository and sandbox garbage collected."]}
+            return {"history": ["Code pushed to remote repository and sandbox garbage collected."], "halted": False}
+        else:
+            return {"history": ["Push aborted or skipped. Workflow halted."], "halted": True, "retries_count": 0}
 
     graph.add_node("push", push_node) 
     
@@ -876,7 +878,17 @@ def build_graph(checkpointer=None):
         "push": "push"                # Always goes here
     })
     
-    graph.add_edge("push", END)
+    def should_proceed_from_push(state: AgentState):
+        """Dynamically route successful runs to END, but trap failed runs to allow GitHub comments to revive them with 'Redo'"""
+        from langgraph.graph import END
+        if state.get("halted", False):
+            return "await_clarification"
+        return END
+
+    graph.add_conditional_edges("push", should_proceed_from_push, {
+        "await_clarification": "await_clarification",
+        "__end__": END
+    })
     
     # Attach memory so the graph can be paused waiting for human approval
     # We now pause at blueprint_approval_gate instead of architect_coder to prevent deadlock during retries
