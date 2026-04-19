@@ -74,13 +74,9 @@ class MCPManager:
             
             instructions_lower = instructions.lower()
             has_jira_link = "atlassian.net" in instructions_lower or "jira" in instructions_lower
-            has_figma_link = "figma.com" in instructions_lower or "figma" in instructions_lower
             
             if has_jira_link and os.environ.get("JIRA_API_TOKEN") and os.environ.get("JIRA_EMAIL") and os.environ.get("JIRA_BASE_URL"):
                 server_configs.append(("JiraMCP", "npx", ["-y", "github:sooperset/mcp-atlassian"]))
-                
-            if (has_figma_link or has_jira_link) and os.environ.get("FIGMA_ACCESS_TOKEN"):
-                server_configs.append(("FigmaMCP", "npx", ["-y", "github:glips/figma-context-mcp"]))
         
         for name, cmd, args in server_configs:
             try:

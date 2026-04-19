@@ -115,7 +115,6 @@ async def context_aggregator_node(state: AgentState):
 {instructions}
 
 If the issue contains HTTP links, use fetch_external_link to read them.
-If the issue mentions a Figma URL, extract design tokens. 
 If the issue mentions Jira, fetch acceptance criteria.
 Return a structured markdown report of your findings."""
                 
@@ -317,7 +316,11 @@ IMPORTANT RULES:
 Solve the task completely, adhering to the design patterns and rules defined above. 
 Ensure you fulfill every aspect of the blueprint."""
     
-    if state.get("compiler_errors"):
+    instructions_lower = state.get('instructions', '').lower()
+    has_figma_link = "figma.com" in instructions_lower or "figma" in instructions_lower
+    
+    if has_figma_link:
+        prompt += "\n\n🎨 FIGMA DESIGN LINK DETECTED:\nYou have been provided with the FigmaMCP. You MUST use it to extract the design tokens from the prompt URL, and merge those design rules into the blueprint architecture before writing code."
         prompt += f"\n\n🚨 PREVIOUS BUILD FAILED WITH ERRORS:\n{state.get('compiler_errors')[-1]}\nDiagnose and fix these specific compilation errors."
         
     print(f"👨‍💻 Architect Coder is farming execution to OpenCode in {workspace_path}...")
@@ -339,6 +342,19 @@ Ensure you fulfill every aspect of the blueprint."""
             }
         }
     }
+    
+    if has_figma_link and os.environ.get("FIGMA_ACCESS_TOKEN"):
+        opencode_config["mcpServers"] = {
+            "FigmaMCP": {
+                "command": "npx",
+                "args": ["-y", "github:glips/figma-context-mcp"],
+                "env": {
+                    "FIGMA_ACCESS_TOKEN": os.environ.get("FIGMA_ACCESS_TOKEN")
+                }
+            }
+        }
+        print("🎨 Architect Coder natively mounting FigmaMCP into OpenCode sandbox...")
+        
     config_path = os.path.join(workspace_path, "opencode.json")
     with open(config_path, "w") as f:
         json.dump(opencode_config, f, indent=2)
@@ -516,12 +532,13 @@ def issue_vetting_node(state: AgentState):
     llm = get_llm(role="planning")
     instructions = state.get("instructions", "")
     
-    prompt = f"""You are the initial filter for an iOS Agentic Coder. 
+    prompt = f"""You are the gateway filter for an advanced iOS Agentic Coder. 
 Review the following GitHub Issue:
 {instructions}
 
-If the issue is clear enough to attempt finding/fixing code (it mentions a component, feature, or clear request), simply reply 'ACTIONABLE'.
-If the issue is vague, dummy testing text, or lacks context (e.g. "dummy message", "fix the app"), write a short polite comment asking the developer for clarification. Do NOT write 'ACTIONABLE'.
+You have access to powerful downstream MCP tools that can natively parse Figma links, Jira tickets, and codebase structure.
+If the issue contains ANY external links (like `figma.com` or `atlassian.net`), OR mentions a clear bug, feature, or UI request, simply reply 'ACTIONABLE'.
+Only reply with a polite comment asking for clarification if the issue is literal garbage text, single keywords without context (e.g. "dummy message", "hello world", "test"), or completely empty. Do NOT write 'ACTIONABLE' in this case.
 """
     response = llm.invoke(prompt).content.strip()
     
