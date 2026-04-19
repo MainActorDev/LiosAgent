@@ -489,10 +489,13 @@ def ui_vision_validator_node(state: AgentState):
     ui_keywords = ["SwiftUI", "UIKit", "View", "Construkt", "UI", "Screen", "Component"]
     has_ui = any(kw.lower() in comp.lower() for comp in arch_components for kw in ui_keywords)
     
+    print(f"📱 UI Vision Check evaluation initialized...")
+    
     if not has_ui:
+        print("⏭️ UI Vision Check Skipped: No UI components detected in Blueprint architecture.")
         return {"history": ["UI Vision Check: Skipped (no UI components in blueprint)."]}
     
-    # Capture a simulator screenshot
+    print("📸 Booting Simulator and waiting for view to flush pixels...")
     screenshot_result = capture_simulator_screenshot(workspace_path)
     
     if screenshot_result.startswith("Error") or screenshot_result.startswith("Simulator"):
@@ -505,12 +508,15 @@ def ui_vision_validator_node(state: AgentState):
     design_constraints += "Ensure compliance with Construkt design tokens and MVVM layout patterns."
     
     # Run the vision validation
+    print(f"🤖 Sending snapshot to Multimodal LLM constraints verification...")
     vision_result = validate_ui_with_vision(screenshot_result, design_constraints)
     filename = os.path.basename(screenshot_result)
     
     if vision_result["passed"]:
+        print(f"✅ UI Vision PASSED: {vision_result['feedback']}")
         return {"screenshot_path": filename, "history": [f"UI Vision Check: PASSED. {vision_result['feedback']}"]}
     else:
+        print(f"❌ UI Vision FAILED: {vision_result['feedback']} (Looping back to Coder!)")
         # Feed visual feedback back to the coder as compiler errors for the retry loop
         errors = state.get("compiler_errors", [])
         errors.append(f"UI VISION FAILURE: {vision_result['feedback']}")
