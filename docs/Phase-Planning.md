@@ -244,16 +244,16 @@ Post the plan for human review before any code is written. This is the safety ne
    Uses `post_github_comment()` which authenticates via the GitHub App's private key and installation token.
 
 3. **Pipeline Halt:**
-   The LangGraph is compiled with `interrupt_before=["router"]`. The graph state is checkpointed to `MemorySaver`, and the Python thread returns.
+   The LangGraph is compiled with `interrupt_before=["blueprint_approval_gate"]`. The graph state is checkpointed to `AsyncSqliteSaver`, and the webhook thread returns.
 
 ### How it resumes
 - A developer reads the blueprint on GitHub and comments **"Approve"**.
 - GitHub sends an `issue_comment` webhook to `POST /webhooks/github`.
-- The handler in `main.py` detects `body.lower() == "approve"` and calls:
+- The handler in `main.py` detects `"approve" in body.lower()` and hits the `blueprint_approval_gate` breakpoint, calling:
   ```python
-  graph_app.invoke(None, config={"configurable": {"thread_id": f"issue-{issue_num}"}})
+  await graph_app.ainvoke(None, config={"configurable": {"thread_id": f"issue-{issue_num}"}})
   ```
-- LangGraph rehydrates the state from the checkpoint and continues from the Router node.
+- LangGraph rehydrates the state from the checkpoint and continues directly into the OpenCode Architect phase.
 
 ---
 

@@ -35,57 +35,36 @@ Code from Execution Phase
 
 ---
 
-## Step 1: Build Validator
+## Step 1: Build Validator Bypass
 
-**Source:** `agent/graph.py` → `validator_node()` / `agent/tools.py` → `execute_xcodebuild()`
+**Source:** `agent/graph.py` → `validator_node()`
 
 ### Purpose
-Compile the project and determine if the generated code actually works.
+Determine if the generated code actually compiles.
 
 ### Flow
 
-#### 1a. Project Structure Generation
-Before building, `prepare_project_structure()` auto-detects and runs the appropriate project generator:
+#### 1a. Native Verification Delegation
+Previously, this node executed `execute_xcodebuild()` with `rtk` (Rust Token Kit) to filter Xcode logs and manually feed them back backward into the router pipeline. 
 
-| Detection | Command |
-|-----------|---------|
-| `project.yml` exists | `rtk xcodegen generate` |
-| `Tuist/Project.swift` exists | `rtk tuist generate` |
-| `Package.swift` exists | `rtk swift package resolve` |
-| None of the above | Skip (assumes `.xcodeproj` already exists) |
+This has been **deprecated**.
 
-#### 1b. Build Execution
-```python
-build_cmd = ["rtk", "xcodebuild", "build", "-scheme", "App", "-destination", "generic/platform=iOS Simulator"]
-```
-- If `scripts/xcodebuild_cached.sh` exists, it uses the cached build script instead.
-- All output is piped through **RTK** (Rust Token Kit), which truncates verbose xcodebuild logs (~30,000 lines) into compact semantic summaries (~20 tokens).
+Because OpenCode natively runs `verification-before-completion`, compiling its own AST modifications within its sandbox, Lios-Agent now entirely trusts the upstream orchestrator's success. 
+If OpenCode exits cleanly, `validator_node` immediately bypasses secondary compilation logic and transitions the state forward by pushing the `Build SUCCESS` string natively into LangGraph's state buffer.
 
-#### 1c. RTK Safety Check
-```python
-if not shutil.which("rtk"):
-    return "FATAL ERROR: The `rtk` CLI proxy is missing from the system PATH."
-```
-If RTK is not installed, the validator **halts immediately** rather than silently dumping 30K tokens into the LLM.
+#### 1b. Result Routing
 
-#### 1d. Result Routing
-
-**Build Succeeded:**
-- Posts a Slack Block Kit message with an **[Approve & Push]** button.
+**Build Succeeded (Inherited):**
+- Assumes validation pass.
 - Routes to `ui_vision_check` via `should_retry() → "ui_check"`.
 
-**Build Failed (retries < 3):**
-- Appends compiler output to `state["compiler_errors"]`.
-- Increments `retries_count`.
-- Routes back to the Router → Sub-Agents for targeted fixes.
-
-**Build Failed (retries >= 3):**
-- Triggers a **full state rollback**:
+**Build Failed (via catastrophic LLM timeout):**
+- LangGraph triggers a **full state rollback** after 3 loops:
   ```bash
   rtk git clean -fd          # Remove untracked files
   rtk git checkout -- .      # Restore all modified files
   ```
-- Routes to `ui_vision_check` (which will pass through to Push, giving up gracefully).
+- Routes to `ui_vision_check` (which will pass through to Push, giving up gracefully with no modified files).
 
 ---
 
