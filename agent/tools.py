@@ -66,6 +66,61 @@ def clone_isolated_workspace(task_id: str, repo_url: str) -> str:
 
 
 
+def execute_xcodebuild(workspace_path: str) -> str:
+    prepare_project_structure(workspace_path)
+    
+    use_rtk = shutil.which("rtk") is not None
+    
+    # Determine the most accurate build scheme natively
+    try:
+        list_res = subprocess.run(["xcodebuild", "-list"], cwd=workspace_path, capture_output=True, text=True)
+        schemes = []
+        in_schemes = False
+        for line in list_res.stdout.split('\n'):
+            if "Schemes:" in line:
+                in_schemes = True
+                continue
+            if in_schemes:
+                if not line.strip(): break
+                schemes.append(line.strip())
+        
+        # Filter test suites and resolve best target
+        app_schemes = [s for s in schemes if not s.endswith('Tests') and not s.endswith('Testing') and not "Preview" in s]
+        chosen_scheme = app_schemes[0] if app_schemes else (schemes[0] if schemes else "App")
+    except Exception:
+        chosen_scheme = "App"
+        
+    print(f"🎯 Resolved workspace target scheme: {chosen_scheme}")
+    
+    # Fallback to pure xcodebuild if no custom fast-build script exists
+    if use_rtk:
+        build_cmd = ["rtk", "xcodebuild", "build", "-scheme", chosen_scheme, "-destination", "generic/platform=iOS Simulator"]
+    else:
+        build_cmd = ["xcodebuild", "build", "-scheme", chosen_scheme, "-destination", "generic/platform=iOS Simulator"]
+    
+    if os.path.exists(os.path.join(workspace_path, "scripts", "xcodebuild_cached.sh")):
+        if use_rtk:
+            build_cmd = ["rtk", "bash", "./scripts/xcodebuild_cached.sh"]
+        else:
+            build_cmd = ["bash", "./scripts/xcodebuild_cached.sh"]
+        
+    try:
+        # We use cwd=workspace_path so xcodebuild runs in the correct directory context
+        result = subprocess.run(
+            build_cmd,
+            cwd=workspace_path,
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode == 0:
+            return f"Build SUCCESS!\n\nOutput:\n{result.stdout[-2000:] if not use_rtk else result.stdout}"
+        else:
+            return f"Build FAILED!\n\nError Log:\n{result.stderr[-2000:] if not use_rtk else result.stderr}\n\nStdout:\n{result.stdout[-2000:] if not use_rtk else result.stdout}"
+            
+    except Exception as e:
+        return f"Failed to execute build script: {str(e)}"
+
 def commit_and_push_branch(workspace_path: str, branch_name: str, commit_message: str, installation_id: str = None, repo_full_name: str = None) -> str:
     """
     Commits local modifications in the workspace to a new branch, and pushes it up to GitHub.
