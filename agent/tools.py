@@ -31,12 +31,15 @@ def clone_isolated_workspace(task_id: str, repo_url: str) -> str:
         if not os.path.exists(seed_path):
             subprocess.run(["git", "clone", repo_url, seed_path], check=True, capture_output=True)
         else:
-            # Dynamically fetch the default primary branch that the seed cache was originally cloned into
-            branch_res = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=seed_path, capture_output=True, text=True)
-            default_branch = branch_res.stdout.strip() if branch_res.stdout else "main"
+            # Allow developers to explicitly override the remote base branch via environment configuration
+            target_branch = os.environ.get("TARGET_BRANCH")
+            if not target_branch:
+                # Dynamically fetch the default primary branch that the seed cache was originally cloned into
+                branch_res = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=seed_path, capture_output=True, text=True)
+                target_branch = branch_res.stdout.strip() if branch_res.stdout else "main"
             
             subprocess.run(["git", "reset", "--hard"], cwd=seed_path, check=True, capture_output=True)
-            subprocess.run(["git", "checkout", default_branch], cwd=seed_path, check=True, capture_output=True)
+            subprocess.run(["git", "checkout", target_branch], cwd=seed_path, check=True, capture_output=True)
             subprocess.run(["git", "pull"], cwd=seed_path, check=True, capture_output=True)
 
         # 2. Instantly replicate the directory using macOS APFS Copy-on-Write
