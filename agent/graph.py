@@ -16,10 +16,12 @@ class FeatureBlueprint(BaseModel):
     files_to_create: List[FileModification]
     files_to_modify: List[FileModification]
     files_to_test: List[FileModification] = Field(
-        description="Mandatory array of XCTest suites to enforce TDD. Must contain at least 1 test file."
+        default_factory=list,
+        description="Array of Swift Testing test suites. Mandatory for Swift features, but LEAVE EMPTY for pure documentation/config tasks."
     )
     architecture_components: List[str] = Field(
-        description="List of design tokens/architecture patterns utilized (e.g. Construkt.bgPrimary, MVVM)."
+        default_factory=list,
+        description="List of design tokens/architecture patterns utilized. LEAVE EMPTY for pure documentation/config tasks."
     )
 
 
@@ -134,7 +136,8 @@ Repository Conventions & Hard Rules:
 🔥 PRIOR ART ENFORCEMENT 🔥
 If the External System Context includes a 'Prior Art Reference Template', you MUST structurally clone its file architecture for this new feature. Use the exact same naming conventions, folder structures, and interaction patterns.
 
-Ensure you mandate TDD by defining the XCTest suites.
+🔥 TDD ENFORCEMENT 🔥
+If this is a coding task, you MUST mandate TDD by defining the Swift Testing (`import Testing`) suites. Do NOT use XCTest. However, if this is purely a documentation or config task (e.g., updating a README.md), leave the testing and architecture arrays empty!
 """
     blueprint: FeatureBlueprint = llm.invoke(prompt)
     
@@ -343,7 +346,16 @@ IMPORTANT RULES:
 def validator_node(state: AgentState):
     workspace_path = state.get("workspace_path")
     task_id = state.get("task_id")
-    build_output = execute_xcodebuild(workspace_path)
+    blueprint = state.get("blueprint", {})
+    
+    # Check if we need a build (skip for pure docs/configs)
+    all_files = [f.get("filepath", "") if isinstance(f, dict) else str(f) for f in blueprint.get("files_to_modify", []) + blueprint.get("files_to_create", [])]
+    needs_build = any(f.endswith((".swift", ".m", ".h", ".pbxproj", ".xcconfig", ".storyboard", ".xib")) for f in all_files)
+    
+    if needs_build:
+        build_output = execute_xcodebuild(workspace_path)
+    else:
+        build_output = "Build SUCCESS\nValidation bypassed: Non-coding task detected."
     
     if "Build SUCCESS" in build_output:
         # Send Approval Request to Slack
