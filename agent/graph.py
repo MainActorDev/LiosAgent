@@ -621,7 +621,20 @@ def build_graph(checkpointer=None):
         if repo_full_name and installation_id:
             post_github_comment(repo_full_name, task_id, installation_id, comment)
             
-        return {"history": ["Code pushed to remote repository."]}
+        # Intelligent garbage collection:
+        # If the push successfully merged to the cloud, there is no reason to hoard 300MB of local Xcode/SPM build caches.
+        # But if it failed, we MUST leave it on disk for the human engineer to `cd` into and forensically investigate.
+        if "ERROR" not in push_msg and "SKIPPED" not in push_msg:
+            import shutil
+            import os
+            try:
+                if os.path.exists(workspace_path):
+                    shutil.rmtree(workspace_path, ignore_errors=True)
+                    print(f"🧹 Auto-destructed workspace {workspace_path} to reclaim disk space.")
+            except Exception as e:
+                print(f"Failed to auto-destruct workspace: {e}")
+            
+        return {"history": ["Code pushed to remote repository and sandbox garbage collected."]}
 
     graph.add_node("push", push_node) 
     
