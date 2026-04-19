@@ -213,7 +213,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
                     config = {"configurable": {"thread_id": f"issue-{issue_num}"}}
                     
                     if action == "edited":
-                        state = graph_app.get_state(config)
+                        state = await graph_app.aget_state(config)
                         if state.next and state.next[0] == "await_clarification":
                             print(f"🚀 Resuming LangGraph Vetting for Edited Issue {issue_num}")
                             await graph_app.ainvoke({"instructions": f"Title: {issue_title}\n\nDescription:\n{issue_body}"}, config=config)
@@ -255,7 +255,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
                     from agent.graph import build_graph
                     graph_app = build_graph(GLOBAL_CHECKPOINTER)
                     config = {"configurable": {"thread_id": f"issue-{issue_num}"}}
-                    state = graph_app.get_state(config)
+                    state = await graph_app.aget_state(config)
                     
                     # Check if the user is approving the blueprint (paused at the 'router')
                     if "approve" in body.lower() and state.next and "router" in state.next:
