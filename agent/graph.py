@@ -321,6 +321,8 @@ Ensure you fulfill every aspect of the blueprint."""
     
     if has_figma_link:
         prompt += "\n\n🎨 FIGMA DESIGN LINK DETECTED:\nYou have been provided with the FigmaMCP. You MUST use it to extract the design tokens from the prompt URL, and merge those design rules into the blueprint architecture before writing code."
+        
+    if state.get("compiler_errors"):
         prompt += f"\n\n🚨 PREVIOUS BUILD FAILED WITH ERRORS:\n{state.get('compiler_errors')[-1]}\nDiagnose and fix these specific compilation errors."
         
     print(f"👨‍💻 Architect Coder is farming execution to OpenCode in {workspace_path}...")
