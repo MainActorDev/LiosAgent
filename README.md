@@ -165,4 +165,4 @@ Lios-Agent is orchestrated entirely in **Python**, binding native MacOS processe
 - **Slack SDK**: Triggers HITL block-kits and pipelines across distributed engineering channels.
 - **Opencode-AI CLI**: Specialized open-source headless Javascript execution terminal powering the fundamental LLM architectural AST traversal, tree-sitter patching syntax, and native `xcodebuild` execution matrix loop.
 - **Maestro**: Native `.yaml` dynamic functional iOS visual UI testing layer.
-- **Serena MCP** and **XcodeBuildMCP**: Pluggable protocol layers feeding semantic symbol context and workspace schemas natively into orchestrator loops via standard IO pipes.
+- **Serena MCP**, **XcodeBuildMCP**, & **Figma MCP**: Pluggable protocol layers feeding semantic symbol context, native workspace schemas, and pixel-perfect design constraints natively into orchestrator loops via standard IO pipes.
