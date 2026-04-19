@@ -94,22 +94,23 @@ def handle_approve_action(ack, body, logger, say):
     
     say(f"✅ Executing final push for Task #{issue_num} by <@{user}>")
     
-    def resume_graph():
+    async def resume_graph_async():
         try:
             from agent.graph import build_graph
             graph_app = build_graph()
             config = {"configurable": {"thread_id": f"issue-{issue_num}"}}
             
-            # Resume LangGraph from the checkpoint interrupt (None means no new user input)
             print(f"Resuming LangGraph execution for Issue {issue_num}...")
-            import asyncio
-            asyncio.run(graph_app.ainvoke(None, config=config))
+            await graph_app.ainvoke(None, config=config)
             print("LangGraph final step complete.")
         except Exception as e:
             print(f"Failed to resume LangGraph: {e}")
-            
-    import threading
-    threading.Thread(target=resume_graph).start()
+    
+    # Schedule on the EXISTING event loop (where the checkpointer state lives)
+    # asyncio.run() would create a new loop and lose the checkpoint
+    import asyncio
+    loop = asyncio.get_event_loop()
+    asyncio.run_coroutine_threadsafe(resume_graph_async(), loop)
 
 # --------------------------------------------------------------------------
 # FastAPI Endpoints
