@@ -257,8 +257,8 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
                     config = {"configurable": {"thread_id": f"issue-{issue_num}"}}
                     state = await graph_app.aget_state(config)
                     
-                    # Check if the user is approving the blueprint (paused at the 'router')
-                    if "approve" in body.lower() and state.next and "router" in state.next:
+                    # Check if the user is approving the blueprint (paused at the 'architect_coder' node)
+                    if "approve" in body.lower() and state.next and "architect_coder" in state.next:
                         print(f"🚀 Resuming LangGraph for Issue {issue_num} via GitHub comment approval")
                         await graph_app.ainvoke(None, config=config)
                     # Otherwise, check if they are clarifying a vague issue (paused at 'await_clarification')
