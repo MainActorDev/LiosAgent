@@ -275,7 +275,7 @@ def should_route_subagent(state: AgentState) -> str:
         return "network_subagent"
     return "general_coder"
 
-def ui_subagent_node(state: AgentState):
+async def ui_subagent_node(state: AgentState):
     """Specialized sub-agent focused exclusively on UI/View layer code."""
     llm = get_llm(role="coding")
     workspace_path = state.get("workspace_path")
@@ -284,10 +284,17 @@ def ui_subagent_node(state: AgentState):
     
     from agent.tools import list_workspace_files
     tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file, list_workspace_files]
-    from langgraph.prebuilt import create_react_agent
-    agent_executor = create_react_agent(llm, tools=tools)
     
-    prompt = f"""You are a Senior iOS UI/UX Engineer specialized in pixel-perfect SwiftUI and UIKit development.
+    from agent.mcp_clients import MCPManager
+    manager = MCPManager()
+    try:
+        mcp_tools = await manager.connect_and_get_tools(workspace_path, state.get("instructions", ""))
+        tools.extend(mcp_tools)
+        
+        from langgraph.prebuilt import create_react_agent
+        agent_executor = create_react_agent(llm, tools=tools)
+        
+        prompt = f"""You are a Senior iOS UI/UX Engineer specialized in pixel-perfect SwiftUI and UIKit development.
 You ONLY work on SwiftUI Views, UIKit ViewControllers, Construkt design tokens, and UI components.
 
 Workspace: {workspace_path}
@@ -306,19 +313,22 @@ Use Construkt design tokens (bgPrimary, textPrimary, etc.) for all colors and sp
 RULES:
 1. For EXISTING files: use `read_workspace_file_lines` then `patch_workspace_file`.
 2. For NEW files: use `write_workspace_file`.
-3. Create all test files from the blueprint's files_to_test that relate to UI."""
-    
-    if state.get("compiler_errors"):
-        prompt += f"\n\n🚨 PREVIOUS ERRORS:\n{state.get('compiler_errors')[-1]}\nFix only UI-related errors."
+3. Create all test files from the blueprint's files_to_test that relate to UI.
+4. You have full access to Serena tools (execute_shell_command, etc) to query git logs or build systems if needed."""
         
-    print(f"👨‍💻 UI Sub-Agent is generating and applying code to {workspace_path}...")
-    result = agent_executor.invoke({"messages": [("user", prompt)]}, config={"recursion_limit": 30})
-    
-    for msg in result.get("messages", []):
-        print(f"[{msg.type.upper()}] {msg.content}")
-        if hasattr(msg, "tool_calls") and msg.tool_calls:
-            print(f"🛠️ Sub-Agent requested tool execution: {msg.tool_calls}")
+        if state.get("compiler_errors"):
+            prompt += f"\n\n🚨 PREVIOUS ERRORS:\n{state.get('compiler_errors')[-1]}\nFix only UI-related errors."
             
+        print(f"👨‍💻 UI Sub-Agent is generating and applying code to {workspace_path}...")
+        result = await agent_executor.ainvoke({"messages": [("user", prompt)]}, config={"recursion_limit": 30})
+        
+        for msg in result.get("messages", []):
+            print(f"[{msg.type.upper()}] {msg.content}")
+            if hasattr(msg, "tool_calls") and msg.tool_calls:
+                print(f"🛠️ Sub-Agent requested tool execution: {msg.tool_calls}")
+    finally:
+        await manager.cleanup()
+        
     # Chain to network sub-agent if both domains are active
     domains = state.get("active_subagents", [])
     next_history = "UI Sub-Agent Complete."
@@ -331,7 +341,7 @@ def should_chain_after_ui(state: AgentState) -> str:
         return "network_subagent"
     return "validator"
 
-def network_subagent_node(state: AgentState):
+async def network_subagent_node(state: AgentState):
     """Specialized sub-agent focused exclusively on API/Network/Data layer code."""
     llm = get_llm(role="coding")
     workspace_path = state.get("workspace_path")
@@ -340,10 +350,17 @@ def network_subagent_node(state: AgentState):
     
     from agent.tools import list_workspace_files
     tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file, list_workspace_files]
-    from langgraph.prebuilt import create_react_agent
-    agent_executor = create_react_agent(llm, tools=tools)
     
-    prompt = f"""You are a Senior iOS Data Systems Engineer specialized in robust Network and API layers.
+    from agent.mcp_clients import MCPManager
+    manager = MCPManager()
+    try:
+        mcp_tools = await manager.connect_and_get_tools(workspace_path, state.get("instructions", ""))
+        tools.extend(mcp_tools)
+        
+        from langgraph.prebuilt import create_react_agent
+        agent_executor = create_react_agent(llm, tools=tools)
+        
+        prompt = f"""You are a Senior iOS Data Systems Engineer specialized in robust Network and API layers.
 You ONLY work on API Services, Repositories, Data Models, DTOs, and Networking logic.
 
 Workspace: {workspace_path}
@@ -362,22 +379,25 @@ Follow clean architecture patterns: Repository -> Service -> DTO -> Domain Model
 RULES:
 1. For EXISTING files: use `read_workspace_file_lines` then `patch_workspace_file`.
 2. For NEW files: use `write_workspace_file`.
-3. Create all test files from the blueprint's files_to_test that relate to networking."""
-    
-    if state.get("compiler_errors"):
-        prompt += f"\n\n🚨 PREVIOUS ERRORS:\n{state.get('compiler_errors')[-1]}\nFix only data/network-related errors."
+3. Create all test files from the blueprint's files_to_test that relate to networking.
+4. You have full access to Serena tools to natively query Xcode databases."""
         
-    print(f"👨‍💻 Network Sub-Agent is generating and applying code to {workspace_path}...")
-    result = agent_executor.invoke({"messages": [("user", prompt)]}, config={"recursion_limit": 30})
-    
-    for msg in result.get("messages", []):
-        print(f"[{msg.type.upper()}] {msg.content}")
-        if hasattr(msg, "tool_calls") and msg.tool_calls:
-            print(f"🛠️ Sub-Agent requested tool execution: {msg.tool_calls}")
+        if state.get("compiler_errors"):
+            prompt += f"\n\n🚨 PREVIOUS ERRORS:\n{state.get('compiler_errors')[-1]}\nFix only data/network-related errors."
             
+        print(f"👨‍💻 Network Sub-Agent is generating and applying code to {workspace_path}...")
+        result = await agent_executor.ainvoke({"messages": [("user", prompt)]}, config={"recursion_limit": 30})
+        
+        for msg in result.get("messages", []):
+            print(f"[{msg.type.upper()}] {msg.content}")
+            if hasattr(msg, "tool_calls") and msg.tool_calls:
+                print(f"🛠️ Sub-Agent requested tool execution: {msg.tool_calls}")
+    finally:
+        await manager.cleanup()
+        
     return {"history": ["Network Sub-Agent Complete."]}
 
-def general_coder_node(state: AgentState):
+async def general_coder_node(state: AgentState):
     """Fallback general-purpose coder for tasks that don't fit UI or Network domains."""
     llm = get_llm(role="coding")
     workspace_path = state.get("workspace_path")
@@ -386,10 +406,17 @@ def general_coder_node(state: AgentState):
     
     from agent.tools import list_workspace_files
     tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file, list_workspace_files]
-    from langgraph.prebuilt import create_react_agent
-    agent_executor = create_react_agent(llm, tools=tools)
     
-    prompt = f"""You are a versatile Staff iOS Software Engineer working in workspace: {workspace_path}
+    from agent.mcp_clients import MCPManager
+    manager = MCPManager()
+    try:
+        mcp_tools = await manager.connect_and_get_tools(workspace_path, state.get("instructions", ""))
+        tools.extend(mcp_tools)
+        
+        from langgraph.prebuilt import create_react_agent
+        agent_executor = create_react_agent(llm, tools=tools)
+        
+        prompt = f"""You are a versatile Staff iOS Software Engineer working in workspace: {workspace_path}
 
 Your task: {state.get('instructions')}
 
@@ -404,19 +431,22 @@ IMPORTANT RULES:
 1. For EXISTING files: First use `read_workspace_file_lines` to view the target area with line numbers.
    Then use `patch_workspace_file` to surgically replace ONLY the lines that need changing.
 2. For NEW files: Use `write_workspace_file` to create them.
-3. Always create test files listed in the blueprint's files_to_test."""
-    
-    if state.get("compiler_errors"):
-        prompt += f"\n\n🚨 PREVIOUS BUILD FAILED WITH ERRORS:\n{state.get('compiler_errors')[-1]}\nUse read_workspace_file_lines to find the broken lines, then patch_workspace_file to fix them."
+3. Always create test files listed in the blueprint's files_to_test.
+4. You have full autonomous MCP environment access. If you need to check Git history, use `execute_shell_command`!"""
         
-    print(f"👨‍💻 General Coder is generating and applying code to {workspace_path}...")
-    result = agent_executor.invoke({"messages": [("user", prompt)]}, config={"recursion_limit": 30})
-    
-    for msg in result.get("messages", []):
-        print(f"[{msg.type.upper()}] {msg.content}")
-        if hasattr(msg, "tool_calls") and msg.tool_calls:
-            print(f"🛠️ Sub-Agent requested tool execution: {msg.tool_calls}")
+        if state.get("compiler_errors"):
+            prompt += f"\n\n🚨 PREVIOUS BUILD FAILED WITH ERRORS:\n{state.get('compiler_errors')[-1]}\nUse read_workspace_file_lines to find the broken lines, then patch_workspace_file to fix them."
             
+        print(f"👨‍💻 General Coder is generating and applying code to {workspace_path}...")
+        result = await agent_executor.ainvoke({"messages": [("user", prompt)]}, config={"recursion_limit": 30})
+        
+        for msg in result.get("messages", []):
+            print(f"[{msg.type.upper()}] {msg.content}")
+            if hasattr(msg, "tool_calls") and msg.tool_calls:
+                print(f"🛠️ Sub-Agent requested tool execution: {msg.tool_calls}")
+    finally:
+        await manager.cleanup()
+        
     return {"history": ["General Coder Complete (Surgical patching via tool binding)."]}
 
 def validator_node(state: AgentState):
