@@ -535,6 +535,7 @@ def maestro_navigation_generator_node(state: AgentState):
     
     print(f"🤖 Running hierarchy-aware Maestro navigation...")
     from agent.tools import get_maestro_bin
+    import subprocess
     
     nav_log = navigate_to_target_view(device_udid, workspace_path, bundle_id, instructions, blueprint)
     
