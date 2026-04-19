@@ -55,6 +55,11 @@ def clone_isolated_workspace(task_id: str, repo_url: str) -> str:
         branch_name = f"ios-agent-issue-{task_id}"
         subprocess.run(["git", "checkout", "-B", branch_name], cwd=workspace_path, check=True, capture_output=True)
         
+        # 4. Strictly ignore execution payloads to prevent token leakage
+        gitignore_path = os.path.join(workspace_path, ".gitignore")
+        with open(gitignore_path, "a") as f:
+            f.write("\n# Lios-Agent Execution Payloads\nopencode.json\n")
+            
         return f"Hot Workspace cloned via APFS at: {workspace_path}"
     except subprocess.CalledProcessError as e:
         return f"Error during workspace prep: {e.stderr}"
