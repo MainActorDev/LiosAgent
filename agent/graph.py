@@ -90,8 +90,26 @@ def planner_node(state: AgentState):
     llm = get_llm(role="planning").with_structured_output(FeatureBlueprint)
     instructions = state.get("instructions", "")
     mcp_context = state.get("mcp_context", "None")
+    workspace_path = state.get("workspace_path", "")
     
-    prompt = f"You are the Lios Architect Agent. Design a strict architecture plan for this issue:\n{instructions}\n\nExternal System Context:\n{mcp_context}\n\nEnsure you mandate TDD by defining the XCTest suites."
+    repo_conventions = ""
+    if workspace_path:
+        config_path = os.path.join(workspace_path, ".lios-config.yml")
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                repo_conventions = f.read()
+    
+    prompt = f"""You are the Lios Architect Agent. Design a strict architecture plan for this issue:
+{instructions}
+
+External System Context:
+{mcp_context}
+
+Repository Conventions & Hard Rules:
+{repo_conventions if repo_conventions else "No specific rules found. Follow standard iOS best practices."}
+
+Ensure you mandate TDD by defining the XCTest suites.
+"""
     blueprint: FeatureBlueprint = llm.invoke(prompt)
     
     return {
