@@ -1,7 +1,7 @@
 import os
 from langgraph.graph import StateGraph, END
 from agent.state import AgentState
-from agent.tools import clone_isolated_workspace, execute_xcodebuild, read_workspace_file, write_workspace_file, read_workspace_file_lines, patch_workspace_file, post_github_comment, capture_simulator_screenshot, validate_ui_with_vision
+from agent.tools import clone_isolated_workspace, execute_xcodebuild, read_workspace_file, write_workspace_file, read_workspace_file_lines, patch_workspace_file, post_github_comment, capture_simulator_screenshot, validate_ui_with_vision, fetch_external_link
 from agent.llm_factory import get_llm
 from pydantic import BaseModel, Field
 from typing import List
@@ -53,9 +53,26 @@ async def context_aggregator_node(state: AgentState):
         return {"mcp_context": "No external MCP context available.", "history": ["Context Aggregation Node skipped (No tools found)."]}
         
     try:
-        # Create a tiny internal autonomous loop so the LLM can query Serena/XcodeBuild tools fully
+        # Include our custom web fetching tool for external links
+        tools.append(fetch_external_link)
+        
+        # Create a tiny internal autonomous loop so the LLM can query Serena/XcodeBuild/Web tools fully
         agent_executor = create_react_agent(llm, tools=tools)
-        prompt = f"Use your tools to find deep context related to this issue:\n{instructions}\n\nSearch codebase symbols or legacy patterns. Return a thorough technical summary."
+        prompt = f"""You are the Context Intelligence Agent. Your job is to explore the codebase and external references to gather architecturally significant context for this issue:
+{instructions}
+
+Investigate the following 7 categories using your tools and produce a structured Markdown report:
+
+1. **Project Structure**: Check for project.yml (XcodeGen), Tuist, or Package.swift. Identify module layout.
+2. **Related Existing Code**: Search for classes/protocols similar to the requested feature.
+3. **Design System**: Search for design tokens (Construkt, Theme, ColorAsset, etc.).
+4. **Architecture**: Look for patterns like Coordinator, MVVM, Repository, Inject.
+5. **Testing Conventions**: Check the Tests/ directory for XCTest vs Quick, and naming styles.
+6. **Build & Dependencies**: Query deployment targets, schemes, and Swift versions.
+7. **External Knowledge (Serena Index & Web Links)**: If the issue explicitly mentions another codebase by name, use `query_projects` to search Serena's index. If the issue contains HTTP links to external repos, gists, or docs, use `fetch_external_link` to read them.
+
+Return your findings as a structured Markdown report with headers for each category.
+"""
         
         result = await agent_executor.ainvoke({"messages": [("user", prompt)]})
         context_data = result["messages"][-1].content

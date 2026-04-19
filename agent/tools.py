@@ -1,6 +1,7 @@
 import os
 import subprocess
 import shutil
+import requests
 from typing import Optional
 from langchain_core.tools import tool
 
@@ -330,3 +331,25 @@ Respond with EXACTLY one of:
     except Exception as e:
         return {"passed": False, "feedback": f"Vision validation error: {str(e)}"}
 
+@tool
+def fetch_external_link(url: str) -> str:
+    """
+    Fetches raw text content from external web links or code snippets.
+    Useful for reading external reference repositories, gists, or GitHub pages mentioned in an issue.
+    """
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        
+        # If it's a GitHub URL, suggest appending ?raw=true for code
+        if "github.com" in url and "blob" in url and "?raw=true" not in url:
+            return f"Tip: For GitHub file links, try fetching the raw content URL instead (e.g., change /blob/ to /raw/). Here is the HTML: {response.text[:500]}..."
+            
+        text = response.text
+        # Truncate to avoid exploding the context window (limit to ~10,000 characters)
+        if len(text) > 10000:
+            return text[:10000] + "\n...[Content truncated due to length constraint]..."
+            
+        return text
+    except Exception as e:
+        return f"Failed to fetch external link {url}: {str(e)}"
