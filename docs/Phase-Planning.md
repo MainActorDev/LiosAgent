@@ -259,9 +259,4 @@ Post the plan for human review before any code is written. This is the safety ne
 
 ## Known Gaps & Future Improvements
 
-### 1. No Figma/Jira MCP Integration
-The `server_configs` in `mcp_clients.py` has placeholders for Figma and Jira MCP servers, but they are not wired. This means:
-- The agent has no access to the actual Figma design specs (colors, spacing, component hierarchy).
-- The agent has no access to the Jira ticket's acceptance criteria or linked issues.
-
-**Improvement:** Wire up `figma-mcp` and `jira-mcp` servers once they are available in the team's environment.
+*None! The Planning Phase pipeline has been fully bridged from end to end.*

@@ -70,6 +70,7 @@ Investigate the following 7 categories using your tools and produce a structured
 5. **Testing Conventions**: Check the Tests/ directory for XCTest vs Quick, and naming styles.
 6. **Build & Dependencies**: Query deployment targets, schemes, and Swift versions.
 7. **External Knowledge (Serena Index & Web Links)**: If the issue explicitly mentions another codebase by name, use `query_projects` to search Serena's index. If the issue contains HTTP links to external repos, gists, or docs, use `fetch_external_link` to read them.
+8. **Design Specs & Business Logic (Figma/Jira)**: If the issue contains a Figma URL, use the Figma tool to extract color tokens, layout hierarchy, and spacing constraints for the feature. If the issue contains a Jira ticket url/ID, use the Jira tool to fetch all linked Acceptance Criteria and Edge Cases.
 
 Return your findings as a structured Markdown report with headers for each category.
 """

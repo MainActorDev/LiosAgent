@@ -39,8 +39,14 @@ class MCPManager:
         server_configs = [
             ("XcodeBuildMCP", "npx", ["-y", "xcodebuildmcp@latest", "mcp"]),
             ("SerenaMCP", "serena", ["mcp"])
-            # 3. Jira & Figma MCP (Placeholders for enterprise env variables)
         ]
+        
+        # 3. Optional Enterprise Integrations (Figma & Jira)
+        if os.environ.get("FIGMA_ACCESS_TOKEN"):
+            server_configs.append(("FigmaMCP", "npx", ["-y", "@modelcontextprotocol/server-figma"]))
+            
+        if os.environ.get("JIRA_API_TOKEN") and os.environ.get("JIRA_EMAIL") and os.environ.get("JIRA_BASE_URL"):
+            server_configs.append(("JiraMCP", "npx", ["-y", "@smithery/cli@latest", "run", "@smithery/jira"]))
         
         for name, cmd, args in server_configs:
             try:

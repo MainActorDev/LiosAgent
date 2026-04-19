@@ -94,7 +94,15 @@ SLACK_CHANNEL_ID="C0123456"
 # Code Storage
 GITHUB_APP_ID="123456"
 GITHUB_PRIVATE_KEY_PATH="./lios-agent.private-key.pem"
+
+# Optional: Figma & Jira MCP
+FIGMA_ACCESS_TOKEN="figd_..."
+JIRA_EMAIL="hello@yourcompany.com"
+JIRA_BASE_URL="https://yourcompany.atlassian.net"
+JIRA_API_TOKEN="..."
 ```
+
+*Note: For Figma, generate a Personal Access Token with the `Files: Read` scope in your settings. For Jira, generate a standard API token from [Atlassian Security](https://id.atlassian.com/manage-profile/security/api-tokens).*
 
 ### 3. Server Initialization
 Set up your venv and boot the FastAPI orchestrator:
