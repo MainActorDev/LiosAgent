@@ -843,7 +843,7 @@ def build_graph(checkpointer=None):
             rendered_video = state.get("video_path", "")
             if rendered_video:
                 comment += "\n### 🎥 UI Traversal Telemetry\n"
-                comment += f'Watch the Maestro AI execution:\n<video src="https://raw.githubusercontent.com/{repo_full_name}/{branch_name}/{rendered_video}" width="300" controls></video>\n'
+                comment += f'Watch the Maestro AI execution:\n\nhttps://github.com/{repo_full_name}/raw/{branch_name}/{rendered_video}\n'
                 
             comment += f"\n<details><summary><b>Git Push Receipt</b></summary>\n\n```text\n{push_msg}\n```\n</details>\n\n### 🚀 [Click here to quickly open a Pull Request!](https://github.com/{repo_full_name}/compare/{branch_name}?expand=1)"
         
