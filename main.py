@@ -258,7 +258,9 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
                     state = await graph_app.aget_state(config)
                     
                     # Check if the user is approving the blueprint (paused at the 'blueprint_approval_gate' node)
-                    if "approve" in body.lower() and state.next and "blueprint_approval_gate" in state.next:
+                    # We also check 'architect_coder' for backward compatibility with states suspended before the gate was added
+                    valid_gates = ["blueprint_approval_gate", "architect_coder"]
+                    if "approve" in body.lower() and state.next and any(gate in state.next for gate in valid_gates):
                         print(f"🚀 Resuming LangGraph for Issue {issue_num} via GitHub comment approval")
                         await graph_app.ainvoke(None, config=config)
                     # Otherwise, check if they are clarifying a vague issue (paused at 'await_clarification')
