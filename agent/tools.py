@@ -267,12 +267,35 @@ def capture_simulator_screenshot(workspace_path: str, scheme: str = "App") -> st
         # 2. Boot if not already booted
         subprocess.run(["xcrun", "simctl", "boot", target_udid], check=False, capture_output=True)
         
-        # 3. Build for simulator and install
+        # 3. Find the correct directory (e.g. if root is a framework but there's a Demo app inside)
+        build_dir = workspace_path
+        if os.path.exists(os.path.join(workspace_path, "Demo")):
+            build_dir = os.path.join(workspace_path, "Demo")
+            
+        # Determine the correct scheme dynamically
+        try:
+            list_res = subprocess.run(["xcodebuild", "-list"], cwd=build_dir, capture_output=True, text=True)
+            schemes = []
+            in_schemes = False
+            for line in list_res.stdout.split('\n'):
+                if "Schemes:" in line:
+                    in_schemes = True
+                    continue
+                if in_schemes and line.strip():
+                    schemes.append(line.strip())
+            app_schemes = [s for s in schemes if not s.endswith('Tests') and not s.endswith('Testing') and not "Preview" in s and "Demo" in s]
+            if not app_schemes:
+                app_schemes = [s for s in schemes if not s.endswith('Tests') and not s.endswith('Testing') and not "Preview" in s]
+            active_scheme = app_schemes[0] if app_schemes else scheme
+        except Exception:
+            active_scheme = scheme
+            
+        # 4. Build for simulator and install
         subprocess.run(
-            ["xcodebuild", "build", "-scheme", scheme,
+            ["xcodebuild", "build", "-scheme", active_scheme,
              "-destination", f"platform=iOS Simulator,id={target_udid}",
-             "-derivedDataPath", os.path.join(workspace_path, "DerivedData")],
-            cwd=workspace_path, check=True, capture_output=True, text=True
+             "-derivedDataPath", os.path.join(build_dir, "DerivedData")],
+            cwd=build_dir, check=True, capture_output=True, text=True
         )
         
         # 4. Wait for simulator to settle then capture
