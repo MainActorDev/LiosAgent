@@ -96,8 +96,9 @@ If OpenCode natively fails to compile its changes, it will seamlessly loop back 
 
 ## Failure & State Handling
 
-If `opencode-ai` exits with a non-zero exit code, or if a downstream orchestrator triggers a retry condition out of the Validator node, LangGraph handles it:
-1. `retries_count` is incremented.
+If `opencode-ai` exits with a non-zero exit code, or if a downstream orchestrator natively triggers a retry condition, LangGraph automatically handles iterative corrections:
+1. `retries_count` is incremented in LangGraph state.
 2. The pipeline routes back to `architect_coder`.
-3. Because `state["opencode_session_id"]` was captured, the agent invokes `npx opencode-ai run --continue --session {ID}`, passing the compiler error directly backward into the exact existing state.
-4. If this cycles **3 times**, the orchestrator engages a fatal RTK State Rollback (`git checkout -- .`) and wipes the workspace changes safely before pushing.
+3. Because `state["opencode_session_id"]` was captured contextually, the agent invokes `npx opencode-ai run --continue --session {ID}`, feeding the compiler error directly backward into the memory matrix of the exact existing session.
+4. **Fatal Max Retries:** If the AI loops and fails **3 times** resolving the semantic compilation error, the orchestrator triggers a State Rollback (`git checkout -- .` and `git clean -fd`) destroying the workspace anomaly cleanly.
+5. **Halt Trap:** To ensure developer visibility, the Orchestrator flips `state.halted` to `True` during the `Push` operation, skipping the final code pushes and dynamically freezing the thread state inside the GitHub PR. Developers can then instantly review the exact terminal abort log pushed to their GitHub issue, and reply `Redo: <feedback>` to resurrect the trapped LangGraph pipeline!

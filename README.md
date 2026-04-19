@@ -15,7 +15,7 @@ The platform operates purely via Slack and GitHub Webhooks, ensuring developers 
 │    Architect Coder → Headless OpenCode CLI (AST Editing Sandbox)   │
 ├─────────────────────────────────────────────────────────────────────┤
 │  🔍 REVIEW PHASE                                                    │
-│    Build Validator Bypass → UI Vision Check → Push PR              │
+│    Build Validator Bypass → Maestro UI Nav → Push PR               │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -54,10 +54,10 @@ Validates the generated code against the compiler, the design system, and human 
 
 | Sub-Node | Purpose |
 |----------|---------|
-| **Build Validator Bypass** | Assumes the code physically compiles cleanly via OpenCode's enclosed native compilation loop, bypassing legacy standalone `xcodebuild` Python extraction. |
-| **UI Vision Check** | Boots the iOS Simulator via `xcrun simctl`, captures a screenshot, and sends it to a **Vision LLM** alongside design constraints for PASS/FAIL evaluation. Only activates when the blueprint contains UI-tagged components. |
-| **Push** | Commits the agent's changes and pushes the branch to GitHub as a pull request. |
-| **PR Review Loop** | When a human developer leaves an **inline code review comment** on the agent's PR, the orchestrator clones the PR branch, re-triggers the Execution → Review pipeline with the comment as instructions, and pushes the fix directly to the existing PR. |
+| **Build Validator Bypass** | Native Compilation validation assumes stability safely via OpenCode's enclosed native compilation loop, bypassing legacy standalone Python execution. |
+| **Maestro UI Validation** | Computes intelligent autonomous visual verification on simulator (`xcrun simctl` + `maestro`). Dynamically captures iOS structures, checks against design limitations using multimodality, synthesizes deterministic replays (`maestro_flow.yaml`), and loops visually. Allows human-developer yaml overrides. |
+| **Push** | Safely commits execution to GitHub. Generates markdown converting video telemetry straight to natively rendered `<video>` URLs. If a pipeline fatally traps the developer's execution limit, freezes execution on a suspended PR block for immediate GitHub Redo intervention. |
+| **PR Review Loop** | When a human developer leaves an **inline code review comment**, the orchestrator clones the PR branch, triggers Coder → Validator, and pushes the fix natively! |
 
 ## 🚀 Quick Start & Installation
 
@@ -155,3 +155,14 @@ When scaling to a production team, be aware of the following system bounds:
 1. **macOS Only**: APFS Copy-on-Write and `xcrun simctl` require macOS. Linux deployment requires alternative workspace strategies.
 2. **Vision Model Required**: The UI Vision Check requires a multimodal LLM (e.g., GPT-4o, Claude Sonnet). If your configured model doesn't support image input, the vision check will gracefully skip.
 3. **Simulator Availability**: The UI Vision Check requires at least one iOS Simulator runtime installed. Run `xcrun simctl list devices` to verify.
+
+## 🛠️ Tech Stacks Used
+
+Lios-Agent is orchestrated entirely in **Python**, binding native MacOS processes dynamically via Unix subshells for optimal hardware execution:
+
+- **LangGraph** & **LangChain**: State machine routing, dependency injection, multi-agent synchronization, memory persistence (`sqlite`), and graph checkpoint definitions.
+- **FastAPI**: Receives Github Webhooks efficiently via standard ASGI web applications.
+- **Slack SDK**: Triggers HITL block-kits and pipelines across distributed engineering channels.
+- **Opencode-AI CLI**: Specialized open-source headless Javascript execution terminal powering the fundamental LLM architectural AST traversal, tree-sitter patching syntax, and native `xcodebuild` execution matrix loop.
+- **Maestro**: Native `.yaml` dynamic functional iOS visual UI testing layer.
+- **Serena MCP** and **XcodeBuildMCP**: Pluggable protocol layers feeding semantic symbol context and workspace schemas natively into orchestrator loops via standard IO pipes.
