@@ -66,6 +66,19 @@ def clone_isolated_workspace(task_id: str, repo_url: str) -> str:
 
 
 
+def prepare_project_structure(workspace_path: str):
+    use_rtk = shutil.which("rtk") is not None
+    
+    if os.path.exists(os.path.join(workspace_path, "project.yml")):
+        cmd = ["rtk", "xcodegen", "generate"] if use_rtk else ["xcodegen", "generate"]
+        subprocess.run(cmd, cwd=workspace_path, check=False)
+    elif os.path.exists(os.path.join(workspace_path, "Tuist", "Project.swift")):
+        cmd = ["rtk", "tuist", "generate"] if use_rtk else ["tuist", "generate"]
+        subprocess.run(cmd, cwd=workspace_path, check=False)
+    elif os.path.exists(os.path.join(workspace_path, "Package.swift")):
+        cmd = ["rtk", "swift", "package", "resolve"] if use_rtk else ["swift", "package", "resolve"]
+        subprocess.run(cmd, cwd=workspace_path, check=False)
+
 def execute_xcodebuild(workspace_path: str) -> str:
     prepare_project_structure(workspace_path)
     
