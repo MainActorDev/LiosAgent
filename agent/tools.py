@@ -217,11 +217,32 @@ def execute_xcodebuild(workspace_path: str) -> str:
     
     use_rtk = shutil.which("rtk") is not None
     
+    # Determine the most accurate build scheme natively
+    try:
+        list_res = subprocess.run(["xcodebuild", "-list"], cwd=workspace_path, capture_output=True, text=True)
+        schemes = []
+        in_schemes = False
+        for line in list_res.stdout.split('\n'):
+            if "Schemes:" in line:
+                in_schemes = True
+                continue
+            if in_schemes:
+                if not line.strip(): break
+                schemes.append(line.strip())
+        
+        # Filter test suites and resolve best target
+        app_schemes = [s for s in schemes if not s.endswith('Tests') and not s.endswith('Testing') and not "Preview" in s]
+        chosen_scheme = app_schemes[0] if app_schemes else (schemes[0] if schemes else "App")
+    except Exception:
+        chosen_scheme = "App"
+        
+    print(f"🎯 Resolved workspace target scheme: {chosen_scheme}")
+    
     # Fallback to pure xcodebuild if no custom fast-build script exists
     if use_rtk:
-        build_cmd = ["rtk", "xcodebuild", "build", "-scheme", "App", "-destination", "generic/platform=iOS Simulator"]
+        build_cmd = ["rtk", "xcodebuild", "build", "-scheme", chosen_scheme, "-destination", "generic/platform=iOS Simulator"]
     else:
-        build_cmd = ["xcodebuild", "build", "-scheme", "App", "-destination", "generic/platform=iOS Simulator"]
+        build_cmd = ["xcodebuild", "build", "-scheme", chosen_scheme, "-destination", "generic/platform=iOS Simulator"]
     
     if os.path.exists(os.path.join(workspace_path, "scripts", "xcodebuild_cached.sh")):
         if use_rtk:
