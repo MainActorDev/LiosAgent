@@ -536,8 +536,31 @@ def maestro_navigation_generator_node(state: AgentState):
     print(f"🤖 Running hierarchy-aware Maestro navigation...")
     from agent.tools import get_maestro_bin
     import subprocess
+    import re
     
-    nav_log = navigate_to_target_view(device_udid, workspace_path, bundle_id, instructions, blueprint)
+    maestro_flow = os.path.join(workspace_path, "maestro_flow.yaml")
+    
+    # ─── Feature: Human Override Detection ───
+    # If the developer provides a Maestro snippet in the GitHub Issue, bypass the Vision LLM entirely
+    override_match = re.search(r'```(?:yaml)?\s*(appId:.*?)\s*```', instructions, re.DOTALL | re.IGNORECASE)
+    
+    if override_match:
+        print("🛠️ Human developer provided direct Maestro YAML override! Bypassing Vision LLM.")
+        raw_override = override_match.group(1).strip()
+        
+        # Invisibly inject the video telemetry hooks so the human still gets a beautiful validation MP4
+        if "startRecording:" not in raw_override and "---" in raw_override:
+            parts = raw_override.split("---", 1)
+            raw_override = f"{parts[0]}---\n- startRecording: lios_navigation{parts[1]}"
+            if "stopRecording" not in raw_override:
+                raw_override += "\n\n- takeScreenshot: lios_final_state\n- stopRecording\n"
+                
+        with open(maestro_flow, "w") as f:
+            f.write(raw_override)
+            
+        nav_log = ["Bypassed Vision LLM: Using human-provided Maestro YAML flow from issue description."]
+    else:
+        nav_log = navigate_to_target_view(device_udid, workspace_path, bundle_id, instructions, blueprint)
     
     # After navigation, we have an intelligent maestro_flow.yaml. Let's run it linearly to capture 
     # the clean video and final screenshot for the UI Validation!
