@@ -331,8 +331,10 @@ def capture_simulator_screenshot(workspace_path: str, scheme: str = "App") -> st
             subprocess.run(["xcrun", "simctl", "launch", target_udid, bundle_id], check=False, capture_output=True)
         
         # 6. Wait for simulator view rendering constraint layout to flush correctly to GPU
+        # We use 12 seconds to safely guarantee LaunchScreen animations have fully faded 
+        # and SwiftUI asynchronous layout passes have deeply resolved, avoiding blank snapshots.
         import time
-        time.sleep(5)
+        time.sleep(12)
         subprocess.run(
             ["xcrun", "simctl", "io", target_udid, "screenshot", screenshot_path],
             check=True, capture_output=True
