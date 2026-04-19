@@ -56,81 +56,98 @@ async def context_aggregator_node(state: AgentState):
     manager = MCPManager()
     tools = await manager.connect_and_get_tools(workspace_path, instructions)
     
-    if not tools:
-        return {"mcp_context": "No external MCP context available.", "history": ["Context Aggregation Node skipped (No tools found)."]}
-        
     context_parts = []
     
-    try:
-        # --- Phase 1: Serena Onboarding (deterministic, no LLM needed) ---
-        # Find Serena's onboarding tools by name
-        tool_map = {t.name: t for t in tools}
-        
-        # Check if onboarding was already performed for this project
-        if "check_onboarding_performed" in tool_map:
-            check_result = await tool_map["check_onboarding_performed"].ainvoke({})
-            print(f"🔍 Onboarding check: {str(check_result)[:200]}")
+    if not tools:
+        print("⚠️ No Serena MCP tools found for Orchestrator. Proceeding with shell fallbacks.")
+        context_parts.append("No external MCP tools bounded to python orchestrator.")
+    
+    if tools:
+        try:
+            # --- Phase 1: Serena Onboarding (deterministic, no LLM needed) ---
+            # Find Serena's onboarding tools by name
+            tool_map = {t.name: t for t in tools}
             
-            # Run onboarding if not yet performed
-            if "onboarding" in tool_map and "not" in str(check_result).lower():
-                print("📋 Running Serena onboarding for first-time project activation...")
-                onboarding_result = await tool_map["onboarding"].ainvoke({})
-                context_parts.append(f"## Serena Onboarding Report\n{onboarding_result}")
-                print(f"✅ Onboarding complete ({len(str(onboarding_result))} chars)")
-        
-        # Get initial instructions / project context
-        if "initial_instructions" in tool_map:
-            init_result = await tool_map["initial_instructions"].ainvoke({})
-            context_parts.append(f"## Project Context\n{init_result}")
-            print(f"✅ Initial instructions loaded ({len(str(init_result))} chars)")
-        
-        # Get symbols overview for architectural understanding
-        if "get_symbols_overview" in tool_map:
-            try:
-                symbols_result = await tool_map["get_symbols_overview"].ainvoke({})
-                context_parts.append(f"## Code Structure Overview\n{str(symbols_result)[:4000]}")
-                print(f"✅ Symbols overview loaded")
-            except Exception as e:
-                print(f"⚠️ Symbols overview failed: {e}")
-        
-        # --- Phase 2: LLM-driven external research (only if needed) ---
-        # Only spin up the LLM loop if the issue references external systems
-        instructions_lower = instructions.lower()
-        needs_external = any(kw in instructions_lower for kw in [
-            "figma.com", "figma", "atlassian.net", "jira", "http://", "https://"
-        ])
-        
-        if needs_external:
-            from langgraph.prebuilt import create_react_agent
+            # Check if onboarding was already performed for this project
+            if "check_onboarding_performed" in tool_map:
+                check_result = await tool_map["check_onboarding_performed"].ainvoke({})
+                print(f"🔍 Onboarding check: {str(check_result)[:200]}")
+                
+                # Run onboarding if not yet performed
+                if "onboarding" in tool_map and "not" in str(check_result).lower():
+                    print("📋 Running Serena onboarding for first-time project activation...")
+                    onboarding_result = await tool_map["onboarding"].ainvoke({})
+                    context_parts.append(f"## Serena Onboarding Report\n{onboarding_result}")
+                    print(f"✅ Onboarding complete ({len(str(onboarding_result))} chars)")
             
-            # Only include tools relevant for external research
-            external_tools = [t for t in tools if t.name in {
-                "query_project", "list_queryable_projects", "fetch_external_link"
-            }]
-            external_tools.append(fetch_external_link)
+            # Get initial instructions / project context
+            if "initial_instructions" in tool_map:
+                init_result = await tool_map["initial_instructions"].ainvoke({})
+                context_parts.append(f"## Project Context\n{init_result}")
+                print(f"✅ Initial instructions loaded ({len(str(init_result))} chars)")
             
-            if external_tools:
-                agent_executor = create_react_agent(llm, tools=external_tools)
-                prompt = f"""The following issue references external systems. Use your tools to fetch relevant context:
+            # Get symbols overview for architectural understanding
+            if "get_symbols_overview" in tool_map:
+                try:
+                    symbols_result = await tool_map["get_symbols_overview"].ainvoke({})
+                    context_parts.append(f"## Code Structure Overview\n{str(symbols_result)[:4000]}")
+                    print(f"✅ Symbols overview loaded")
+                except Exception as e:
+                    print(f"⚠️ Symbols overview failed: {e}")
+            
+            # --- Phase 2: LLM-driven external research (only if needed) ---
+            # Only spin up the LLM loop if the issue references external systems
+            instructions_lower = instructions.lower()
+            needs_external = any(kw in instructions_lower for kw in [
+                "figma.com", "figma", "atlassian.net", "jira", "http://", "https://"
+            ])
+            
+            if needs_external:
+                from langgraph.prebuilt import create_react_agent
+                
+                # Only include tools relevant for external research
+                external_tools = [t for t in tools if t.name in {
+                    "query_project", "list_queryable_projects", "fetch_external_link"
+                }]
+                external_tools.append(fetch_external_link)
+                
+                if external_tools:
+                    agent_executor = create_react_agent(llm, tools=external_tools)
+                    prompt = f"""The following issue references external systems. Use your tools to fetch relevant context:
 {instructions}
 
 If the issue contains HTTP links, use fetch_external_link to read them.
 If the issue mentions Jira, fetch acceptance criteria.
 Return a structured markdown report of your findings."""
-                
-                print("🌐 Fetching external references (Figma/Jira/Web)...")
-                result = await agent_executor.ainvoke(
-                    {"messages": [("user", prompt)]},
-                    config={"recursion_limit": 10}
-                )
-                external_context = result["messages"][-1].content
-                context_parts.append(f"## External References\n{external_context}")
-        
+                    
+                    print("🌐 Fetching external references (Figma/Jira/Web)...")
+                    result = await agent_executor.ainvoke(
+                        {"messages": [("user", prompt)]},
+                        config={"recursion_limit": 10}
+                    )
+                    external_context = result["messages"][-1].content
+                    context_parts.append(f"## External References\n{external_context}")
+            
+        except Exception as e:
+            context_parts.append(f"Context gathering error: {e}")
+            print(f"⚠️ Context aggregation error: {e}")
+        finally:
+            await manager.cleanup()
+            
+    # Fallback to pure shell representation of the file tree so the planner isn't blind
+    try:
+        import subprocess
+        print("🔍 Extracting raw directory tree for the planner...")
+        # Ignore obvious noise paths
+        tree_output = subprocess.run(
+            ["find", ".", "-not", "-path", "*/.*", "-not", "-path", "*/DerivedData/*", "-not", "-path", "*/build/*"],
+            cwd=workspace_path, capture_output=True, text=True
+        ).stdout
+        if tree_output.strip():
+            # Cap it to avoid LLM context bloat
+            context_parts.append(f"## RAW REPOSITORY TREE\n{tree_output[:8000]}")
     except Exception as e:
-        context_parts.append(f"Context gathering error: {e}")
-        print(f"⚠️ Context aggregation error: {e}")
-    finally:
-        await manager.cleanup()
+        print(f"⚠️ Failed to extract raw file tree: {e}")
         
     # Compile Index of Agent Skills
     agent_skills = ""
