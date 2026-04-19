@@ -147,14 +147,14 @@ Lios-Agent/
 | **Headless OpenCode Run** | Delegates extremely tricky AST patching algorithms to a specialized 1st-party CLI. |
 | **Pydantic FeatureBlueprint** | Forces deterministic JSON, preventing freeform text hallucination in planning. |
 | **Auto-Destructing Workspaces** | Aggressive garbage collection (`shutil.rmtree`) happens immediately after a successful PR to prevent SPM / DerivedData bloat. |
-| **Vision UI Validation** | Catches pixel-perfect regressions that pass compilation but look visually broken. |
+| **Maestro Autonomous Traversal** | Dynamically synthesizes and tests interactive functional flows natively, preventing regressions that compile cleanly but break structurally. |
 | **Async Context Aggregator** | MCP connections require `AsyncExitStack` for persistent stdio pipe lifecycle. |
 
 ## ⚠️ Known Limitations
 When scaling to a production team, be aware of the following system bounds:
 1. **macOS Only**: APFS Copy-on-Write and `xcrun simctl` require macOS. Linux deployment requires alternative workspace strategies.
-2. **Vision Model Required**: The UI Vision Check requires a multimodal LLM (e.g., GPT-4o, Claude Sonnet). If your configured model doesn't support image input, the vision check will gracefully skip.
-3. **Simulator Availability**: The UI Vision Check requires at least one iOS Simulator runtime installed. Run `xcrun simctl list devices` to verify.
+2. **Vision Model Required**: The Maestro loop requires a multimodal LLM (e.g., GPT-4o, Claude Sonnet) to visually evaluate and navigate UI changes mathematically.
+3. **Simulator Availability**: The Maestro loop requires at least one iOS Simulator runtime installed locally. Run `xcrun simctl list devices` to verify.
 
 ## 🛠️ Tech Stacks Used
 
@@ -165,4 +165,4 @@ Lios-Agent is orchestrated entirely in **Python**, binding native MacOS processe
 - **Slack SDK**: Triggers HITL block-kits and pipelines across distributed engineering channels.
 - **Opencode-AI CLI**: Specialized open-source headless Javascript execution terminal powering the fundamental LLM architectural AST traversal, tree-sitter patching syntax, and native `xcodebuild` execution matrix loop.
 - **Maestro**: Native `.yaml` dynamic functional iOS visual UI testing layer.
-- **Serena MCP**, **XcodeBuildMCP**, & **Figma MCP**: Pluggable protocol layers feeding semantic symbol context, native workspace schemas, and pixel-perfect design constraints natively into orchestrator loops via standard IO pipes.
+- **Serena MCP**, **XcodeBuildMCP**, **Figma MCP**, & **Jira MCP**: Pluggable protocol layers feeding semantic symbol context, native workspace schemas, project management constraints, and pixel-perfect design limitations natively into orchestrator loops via standard IO pipes.
