@@ -269,8 +269,9 @@ def capture_simulator_screenshot(workspace_path: str, scheme: str = "App") -> st
         if not target_udid:
             return "Error: No available iOS simulator device found."
         
-        # 2. Boot if not already booted
-        subprocess.run(["xcrun", "simctl", "boot", target_udid], check=False, capture_output=True)
+        # 2. Boot if not already booted, and deeply wait for the iOS springboard daemon to complete launch
+        subprocess.run(["open", "-a", "Simulator", "--args", "-CurrentDeviceUDID", target_udid], check=False)
+        subprocess.run(["xcrun", "simctl", "bootstatus", target_udid, "-b"], check=False, capture_output=True)
         
         # 3. Find the correct directory dynamically by looking for .xcodeproj or .xcworkspace
         import glob
