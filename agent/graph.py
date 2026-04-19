@@ -330,7 +330,25 @@ The repository maintains documentation and specific architectural guidelines at 
 IMPORTANT RULES:
 Before generating code, use your native file-reading tools to investigate any skill files that seem relevant to your current architectural task. Treat their isolated contents as absolute directives.
 Solve the task completely, adhering to the design patterns and rules defined above.
-Ensure you fulfill every aspect of the blueprint."""
+Ensure you fulfill every aspect of the blueprint.
+
+ACCESSIBILITY IDENTIFIERS (MANDATORY FOR ALL UI ELEMENTS):
+When creating or modifying SwiftUI Views or UIKit view controllers, you MUST add accessibility identifiers to all interactive and visually significant elements. This is critical for the automated UI testing pipeline.
+
+Naming convention: `.accessibilityIdentifier("lios-<feature>-<element>")`
+Examples:
+  - `.accessibilityIdentifier("lios-movie-detail-title")`
+  - `.accessibilityIdentifier("lios-profile-edit-button")`
+  - `.accessibilityIdentifier("lios-home-search-bar")`
+
+For UIKit: `view.accessibilityIdentifier = "lios-<feature>-<element>"`
+
+Apply identifiers to:
+  - All buttons, labels, text fields, images with semantic meaning
+  - Navigation bar items and tab bar items
+  - List/collection view cells
+  - Section headers and footers
+  - Any custom interactive component"""
     
     instructions_lower = state.get('instructions', '').lower()
     has_figma_link = "figma.com" in instructions_lower or "figma" in instructions_lower

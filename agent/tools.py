@@ -658,6 +658,12 @@ def _analyze_navigation_from_source(workspace_path: str, file_paths: list) -> st
                 # Detect navigation links (tells us this view pushes to other screens)
                 if "NavigationLink" in content or "NavigationDestination" in content:
                     hints.append("View contains NavigationLinks — may lead to deeper screens")
+                
+                # Extract lios-* accessibility identifiers injected by the Coder node
+                import re
+                lios_ids = re.findall(r'accessibilityIdentifier\(["\']?(lios-[a-zA-Z0-9-]+)["\']?\)', content)
+                if lios_ids:
+                    hints.append(f"Agent-injected identifiers in this file: {', '.join(lios_ids)} — use these as reliable Maestro resource-id targets")
                     
         except Exception:
             pass
