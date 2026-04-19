@@ -147,13 +147,7 @@ def commit_and_push_branch(workspace_path: str, branch_name: str, commit_message
     try:
         subprocess.run(["git", "checkout", "-B", branch_name], cwd=workspace_path, check=True, capture_output=True)
         
-        # Strictly ignore sandbox visual telemetry during staging without dirtying the globally tracked .gitignore
-        exclude_path = os.path.join(workspace_path, ".git", "info", "exclude")
-        if os.path.exists(exclude_path):
-            with open(exclude_path, "a") as f:
-                f.write("\n# Agent UI Telemetry Overrides\nlios_screenshot_*.png\nlios_validation_run.mp4\n")
-        
-        # Stage all real changes
+        # Stage all real changes (including lios_* telemetry assets as requested)
         subprocess.run(["git", "add", "-A"], cwd=workspace_path, check=True, capture_output=True)
         
         # Check what's actually staged
@@ -371,6 +365,9 @@ def capture_simulator_screenshot(workspace_path: str, task_id: str) -> dict:
             ["xcrun", "simctl", "io", target_udid, "screenshot", screenshot_path],
             check=True, capture_output=True
         )
+        
+        # Use native macOS SIPS to permanently downscale the Retina image to 800px constraint, saving raw Git push payload weight
+        subprocess.run(["sips", "-Z", "800", screenshot_path], check=False, capture_output=True)
         
         # Gracefully terminate the video recording
         video_proc.send_signal(signal.SIGINT)
