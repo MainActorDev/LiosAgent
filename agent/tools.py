@@ -405,10 +405,17 @@ def get_maestro_hierarchy(device_udid: str) -> str:
 
 def run_maestro_single_tap(device_udid: str, workspace_path: str, bundle_id: str, label: str) -> bool:
     """
-    Writes and executes a single-step Maestro flow to tap on an element by its label.
-    Returns True if Maestro executed successfully, False otherwise.
+    Executes a robust Maestro tap: uses retryTapIfNoChange so early taps on 
+    not-yet-ready UI elements are automatically retried, and waits for settle.
     """
-    flow_content = f"appId: {bundle_id}\n---\n- tapOn: \"{label}\"\n"
+    flow_content = f"""appId: {bundle_id}
+---
+- tapOn:
+    text: "{label}"
+    retryTapIfNoChange: true
+    waitToSettleTimeoutMs: 3000
+- waitForAnimationToEnd
+"""
     flow_path = os.path.join(workspace_path, "maestro_step.yaml")
     with open(flow_path, "w") as f:
         f.write(flow_content)
@@ -418,19 +425,40 @@ def run_maestro_single_tap(device_udid: str, workspace_path: str, bundle_id: str
         [maestro_bin, "--device", device_udid, "test", flow_path],
         check=False, capture_output=True, text=True
     )
+    if result.returncode != 0:
+        print(f"    📋 Maestro stderr: {result.stderr[-300:]}" if result.stderr else "    📋 Maestro: no stderr")
     return result.returncode == 0
 
-def run_maestro_scroll(device_udid: str, workspace_path: str, bundle_id: str, direction: str = "DOWN") -> bool:
+def run_maestro_scroll(device_udid: str, workspace_path: str, bundle_id: str, 
+                       direction: str = "DOWN", target_label: str = None) -> bool:
     """
-    Executes a Maestro scroll action. Direction can be DOWN, UP, LEFT, RIGHT.
+    Executes a Maestro scroll. If target_label is provided, uses scrollUntilVisible
+    which is much more reliable than blind scrolling. Falls back to plain scroll.
     """
-    flow_content = f"appId: {bundle_id}\n---\n- scroll\n"
-    if direction.upper() != "DOWN":
-        # Maestro scroll defaults to DOWN; for UP we use swipe
-        swipe_map = {"UP": "- swipe:\n    direction: UP\n    duration: 400",
-                     "LEFT": "- swipe:\n    direction: LEFT\n    duration: 400",
-                     "RIGHT": "- swipe:\n    direction: RIGHT\n    duration: 400"}
-        flow_content = f"appId: {bundle_id}\n---\n{swipe_map.get(direction.upper(), '- scroll')}\n"
+    if target_label:
+        # scrollUntilVisible: scroll until element with target text appears
+        flow_content = f"""appId: {bundle_id}
+---
+- scrollUntilVisible:
+    element: "{target_label}"
+    direction: {direction.upper()}
+    timeout: 15000
+    centerElement: true
+"""
+    elif direction.upper() == "DOWN":
+        flow_content = f"""appId: {bundle_id}
+---
+- scroll
+- waitForAnimationToEnd
+"""
+    else:
+        flow_content = f"""appId: {bundle_id}
+---
+- swipe:
+    direction: {direction.upper()}
+    duration: 400
+- waitForAnimationToEnd
+"""
     
     flow_path = os.path.join(workspace_path, "maestro_step.yaml")
     with open(flow_path, "w") as f:
@@ -441,7 +469,52 @@ def run_maestro_scroll(device_udid: str, workspace_path: str, bundle_id: str, di
         [maestro_bin, "--device", device_udid, "test", flow_path],
         check=False, capture_output=True, text=True
     )
+    if result.returncode != 0:
+        print(f"    📋 Maestro stderr: {result.stderr[-300:]}" if result.stderr else "    📋 Maestro: no stderr")
     return result.returncode == 0
+
+def synthesize_replayable_flow(workspace_path: str, bundle_id: str, action_history: list) -> str:
+    """
+    After the navigation loop completes, synthesize a complete multi-step Maestro YAML 
+    from the action history. This flow can be replayed independently for regression testing
+    and is stored alongside the PR.
+    
+    Returns the path to the synthesized flow file.
+    """
+    lines = [
+        f"appId: {bundle_id}",
+        "---",
+        "- launchApp",
+        "- startRecording: lios_navigation",
+        "- waitForAnimationToEnd",
+        ""
+    ]
+    
+    for action in action_history:
+        if action.startswith("TAP:"):
+            label = action.replace("TAP:", "").strip().strip('"').strip("'")
+            lines.append(f'- tapOn:')
+            lines.append(f'    text: "{label}"')
+            lines.append(f'    retryTapIfNoChange: true')
+            lines.append(f'    waitToSettleTimeoutMs: 3000')
+            lines.append(f'- waitForAnimationToEnd')
+            lines.append("")
+        elif action.startswith("SCROLL:"):
+            direction = action.replace("SCROLL:", "").strip().upper()
+            lines.append(f'- scroll')
+            lines.append(f'- waitForAnimationToEnd')
+            lines.append("")
+    
+    lines.append("- takeScreenshot: lios_final_state")
+    lines.append("- stopRecording")
+    lines.append("")
+    
+    flow_path = os.path.join(workspace_path, "maestro_flow.yaml")
+    with open(flow_path, "w") as f:
+        f.write("\n".join(lines))
+    
+    print(f"  📄 Synthesized replayable Maestro flow: {flow_path}")
+    return flow_path
 
 def navigate_to_target_view(device_udid: str, workspace_path: str, bundle_id: str, instructions: str, blueprint: dict) -> list:
     """
@@ -611,10 +684,14 @@ Respond with ONLY "DONE", "TAP: <label>", or "SCROLL: DOWN/UP"."""
     for f in glob.glob(os.path.join(workspace_path, "maestro_nav_step_*.png")):
         os.remove(f)
     
-    # Write navigation log
-    flow_path = os.path.join(workspace_path, "maestro_flow.yaml")
-    with open(flow_path, "w") as f:
-        f.write(f"# Maestro navigation log\n# {chr(10).join(nav_log)}\n")
+    # Synthesize a complete, replayable Maestro YAML from the action history
+    if action_history:
+        synthesize_replayable_flow(workspace_path, bundle_id, action_history)
+    else:
+        # No actions taken — write a simple navigation log
+        flow_path = os.path.join(workspace_path, "maestro_flow.yaml")
+        with open(flow_path, "w") as f:
+            f.write(f"# Maestro navigation: no actions needed (target was already visible)\n")
     
     return nav_log
 
