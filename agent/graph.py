@@ -55,7 +55,7 @@ async def context_aggregator_node(state: AgentState):
     instructions = state.get("instructions", "")
     
     manager = MCPManager()
-    tools = await manager.connect_and_get_tools(workspace_path)
+    tools = await manager.connect_and_get_tools(workspace_path, instructions)
     
     if not tools:
         return {"mcp_context": "No external MCP context available.", "history": ["Context Aggregation Node skipped (No tools found)."]}

@@ -17,7 +17,7 @@ class MCPManager:
         self._exit_stack = AsyncExitStack()
         self.sessions = []
         
-    async def connect_and_get_tools(self, workspace_path: str = None) -> List:
+    async def connect_and_get_tools(self, workspace_path: str = None, instructions: str = "") -> List:
         all_tools = []
         workspace_env = os.environ.copy()
         
@@ -42,11 +42,18 @@ class MCPManager:
         ]
         
         # 3. Optional Enterprise Integrations (Figma & Jira)
-        if os.environ.get("FIGMA_ACCESS_TOKEN"):
-            server_configs.append(("FigmaMCP", "npx", ["-y", "@modelcontextprotocol/server-figma"]))
+        instructions_lower = instructions.lower()
+        has_jira_link = "atlassian.net" in instructions_lower or "jira" in instructions_lower
+        has_figma_link = "figma.com" in instructions_lower or "figma" in instructions_lower
+        
+        # Only use Jira MCP if Jira link is mentioned in Github Issue
+        if has_jira_link and os.environ.get("JIRA_API_TOKEN") and os.environ.get("JIRA_EMAIL") and os.environ.get("JIRA_BASE_URL"):
+            server_configs.append(("JiraMCP", "npx", ["-y", "github:sooperset/mcp-atlassian"]))
             
-        if os.environ.get("JIRA_API_TOKEN") and os.environ.get("JIRA_EMAIL") and os.environ.get("JIRA_BASE_URL"):
-            server_configs.append(("JiraMCP", "npx", ["-y", "@smithery/cli@latest", "run", "@smithery/jira"]))
+        # Only use Figma MCP if Figma link is mentioned in Github Issue OR Jira
+        # (If Jira is loaded, we proactively load Figma so the agent can access Figma links found inside the Jira ticket)
+        if (has_figma_link or has_jira_link) and os.environ.get("FIGMA_ACCESS_TOKEN"):
+            server_configs.append(("FigmaMCP", "npx", ["-y", "github:glips/figma-context-mcp"]))
         
         for name, cmd, args in server_configs:
             try:
