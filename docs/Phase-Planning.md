@@ -259,31 +259,9 @@ Post the plan for human review before any code is written. This is the safety ne
 
 ## Known Gaps & Future Improvements
 
-### 1. Context Aggregator Prompt is Generic
-The current prompt (*"Search codebase symbols or legacy patterns"*) doesn't specifically instruct the micro-agent to look for:
-- The project generator type (XcodeGen vs Tuist vs SPM)
-- The module structure conventions (feature folders, shared modules)
-- The design system in use (Construkt tokens, custom themes)
-- The testing patterns (XCTest vs Quick/Nimble, snapshot testing)
-
-**Improvement:** A targeted multi-step prompt that forces the micro-agent to check each of these categories systematically.
-
-### 2. No Figma/Jira MCP Integration
+### 1. No Figma/Jira MCP Integration
 The `server_configs` in `mcp_clients.py` has placeholders for Figma and Jira MCP servers, but they are not wired. This means:
 - The agent has no access to the actual Figma design specs (colors, spacing, component hierarchy).
 - The agent has no access to the Jira ticket's acceptance criteria or linked issues.
 
 **Improvement:** Wire up `figma-mcp` and `jira-mcp` servers once they are available in the team's environment.
-
-### 3. Planner Doesn't Explicitly Reference Repo Conventions
-The Planner prompt doesn't inject repo-specific rules like:
-- "This repo uses XcodeGen — always include changes to `project.yml`"
-- "This repo follows MVVM-C — every new screen needs a Coordinator"
-- "This repo uses Construkt — never use raw UIColor"
-
-**Improvement:** Introduce a `.lios-config.yml` file at the repo root that developers can populate with project conventions. The Planner would read this file and inject its contents into the prompt.
-
-### 4. No Blueprint Diff Against Prior Art
-Currently the Planner generates the blueprint from scratch. It doesn't compare its plan against how similar features were historically implemented in the repo.
-
-**Improvement:** The Context Aggregator should search for the most structurally similar existing feature and pass its file tree to the Planner as a reference template.

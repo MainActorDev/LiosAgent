@@ -64,7 +64,7 @@ async def context_aggregator_node(state: AgentState):
 Investigate the following 7 categories using your tools and produce a structured Markdown report:
 
 1. **Project Structure**: Check for project.yml (XcodeGen), Tuist, or Package.swift. Identify module layout.
-2. **Related Existing Code**: Search for classes/protocols similar to the requested feature.
+2. **Prior Art Reference Template**: Identify the single most structurally similar EXISTING feature in the codebase. Use the `list_directory` tool to map its entire file tree. Output this file tree exactly, and explicitly state its architectural components. This will be used as a mandatory mapping template.
 3. **Design System**: Search for design tokens (Construkt, Theme, ColorAsset, etc.).
 4. **Architecture**: Look for patterns like Coordinator, MVVM, Repository, Inject.
 5. **Testing Conventions**: Check the Tests/ directory for XCTest vs Quick, and naming styles.
@@ -129,6 +129,9 @@ External System Context:
 
 Repository Conventions & Hard Rules:
 {agent_skills}
+
+🔥 PRIOR ART ENFORCEMENT 🔥
+If the External System Context includes a 'Prior Art Reference Template', you MUST structurally clone its file architecture for this new feature. Use the exact same naming conventions, folder structures, and interaction patterns.
 
 Ensure you mandate TDD by defining the XCTest suites.
 """
