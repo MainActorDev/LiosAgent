@@ -69,9 +69,12 @@ def read_workspace_file(workspace_path: str, file_relative_path: str) -> str:
 def write_workspace_file(workspace_path: str, file_relative_path: str, content: str) -> str:
     """
     Overwrites or creates a file inside the isolated workspace with the provided content.
-    Use this ONLY for creating brand new files. For modifying existing files, use patch_workspace_file instead.
+    Use this ONLY for creating brand new files or rewriting prosaic files like READMEs.
     """
     full_path = os.path.join(workspace_path, file_relative_path)
+    print(f"🔥 LLM CALLING write_workspace_file 🔥")
+    print(f"Target: {full_path}")
+    print(f"Content Length: {len(content)}")
     
     # Ensure directory exists (e.g. if creating a new Feature module)
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
@@ -81,6 +84,7 @@ def write_workspace_file(workspace_path: str, file_relative_path: str, content: 
             f.write(content)
         return f"Successfully wrote to: {file_relative_path}"
     except Exception as e:
+        print(f"🔥 Error writing: {e}")
         return f"Error writing file: {str(e)}"
 
 @tool

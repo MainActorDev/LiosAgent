@@ -11,7 +11,7 @@ FASTAPI_PID=$!
 
 echo "Starting ngrok to expose port 8000..."
 # Note: make sure ngrok is installed and authenticated locally
-ngrok http 8000
+rtk ngrok http 8000 --log=stdout
 
 # When ngrok shuts down, gracefully stop the fastapi server
 kill $FASTAPI_PID

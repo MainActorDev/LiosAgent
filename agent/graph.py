@@ -454,16 +454,24 @@ async def general_coder_node(state: AgentState):
             print("⚠️ Serena tools unavailable, falling back to Python tools")
             from agent.tools import list_workspace_files, run_shell_command
             tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file, list_workspace_files, run_shell_command]
+        # Inject localized python fallback tools that omit workspace_path and match Serena's signature footprint
+        from langchain_core.tools import tool
+        from agent.tools import read_workspace_file, run_shell_command, write_workspace_file
         
-        # Inject python fallback tools globally so Serena has a failsafe for rewriting whole files
-        from agent.tools import write_workspace_file, read_workspace_file, run_shell_command
-        fallback_tools = [write_workspace_file, read_workspace_file, run_shell_command]
-        
-        # Avoid duplicate tool names crashing LangChain
-        existing_tool_names = {t.name for t in tools}
-        for ft in fallback_tools:
-            if ft.name not in existing_tool_names:
-                tools.append(ft)
+        @tool
+        def overwrite_prose_file(file_relative_path: str, content: str) -> str:
+            """
+            Overwrites an entire file with the provided content. 
+            MANDATORY: Use this tool to completely overwrite Markdown files (like README.md) instead of using 'replace_content'.
+            """
+            return write_workspace_file.invoke({"workspace_path": workspace_path, "file_relative_path": file_relative_path, "content": content})
+            
+        @tool
+        def execute_shell(command: str) -> str:
+            """Executes a bash shell command in the project root."""
+            return run_shell_command.invoke({"workspace_path": workspace_path, "command": command})
+            
+        tools.extend([overwrite_prose_file, execute_shell])
         
         from langgraph.prebuilt import create_react_agent
         agent_executor = create_react_agent(llm, tools=tools)
@@ -481,8 +489,8 @@ TEAM RULES & AGENT SKILLS:
 IMPORTANT RULES:
 1. Use `find_file` or `list_dir` to discover files in the project.
 2. Use `read_file` to view file contents.
-3. Use Serena's `replace_content` for surgical Swift code edits. Use `write_workspace_file` to COMPLETELY OVERWRITE files that are mostly prose (like README.md) because line-by-line patching is too fragile for Markdown.
-4. Use `execute_shell_command` to run git log, git diff, grep, or any shell command you need to understand recent changes.
+3. Use Serena's `replace_content` for surgical Swift code edits. Use `overwrite_prose_file` to COMPLETELY OVERWRITE files that are mostly prose (like README.md) because line-by-line patching is too fragile for Markdown.
+4. Use `execute_shell` to run git log, git diff, grep, or any shell command you need to understand recent changes.
 5. Always create test files listed in the blueprint's files_to_test."""
         
         if state.get("compiler_errors"):
