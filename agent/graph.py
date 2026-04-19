@@ -610,8 +610,12 @@ def blueprint_approval_gate(state: AgentState):
 def should_proceed_from_blueprint(state: AgentState) -> str:
     """Dynamically routes execution depending on whether the user approved the blueprint or issued feedback."""
     last_history = state.get("history", [""])[-1]
-    if "Blueprint feedback received" in last_history:
+    
+    if "approved by human" in last_history:
+        return "architect_coder"
+    elif "Blueprint feedback received" in last_history:
         return "planner"
+        
     return "architect_coder"
 
 def build_graph(checkpointer=None):
