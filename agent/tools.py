@@ -456,7 +456,8 @@ def navigate_to_target_view(device_udid: str, workspace_path: str, bundle_id: st
     import base64
     
     nav_log = []
-    max_steps = 5
+    max_steps = 7
+    action_history = []  # Track every action taken to prevent loops
     
     # Gather context about what changed
     files = blueprint.get("files_to_modify", []) + blueprint.get("files_to_create", [])
@@ -468,8 +469,6 @@ def navigate_to_target_view(device_udid: str, workspace_path: str, bundle_id: st
     print(f"  🏗️ Components: {', '.join(components)}")
     
     # ─── Phase 1: Source Code Intelligence ───
-    # Analyze file paths to understand WHERE in the app the changes live.
-    # e.g., "Features/Movie/MovieDetailView.swift" → target is "Movie" feature, likely a detail screen.
     nav_hints = _analyze_navigation_from_source(workspace_path, file_paths)
     print(f"  🧭 Source code nav hints: {nav_hints}")
     
@@ -494,7 +493,15 @@ def navigate_to_target_view(device_udid: str, workspace_path: str, bundle_id: st
         labeled_elements = "\n".join(meaningful_lines) if meaningful_lines else "No labeled elements found."
         print(f"  🔍 Step {step+1}: {len(meaningful_lines)} labeled elements on screen")
         
-        # 3. Encode the screenshot for the Vision LLM
+        # 3. Build action history context for the LLM
+        history_context = ""
+        if action_history:
+            history_context = "\n\nACTIONS ALREADY TAKEN (do NOT repeat these):\n"
+            for i, action in enumerate(action_history):
+                history_context += f"  Step {i+1}: {action}\n"
+            history_context += "If you already tapped an element and the screen hasn't changed to the target, the element is probably a tab you're already on. Try a DIFFERENT element or respond DONE.\n"
+        
+        # 4. Encode the screenshot for the Vision LLM
         try:
             vision_llm = get_llm(role="vision")
             
@@ -511,16 +518,17 @@ NAVIGATION HINTS FROM SOURCE CODE: {nav_hints}
 
 LABELED ELEMENTS ON SCREEN:
 {labeled_elements}
-
-Look at this screenshot of the current screen. You have 3 possible actions:
+{history_context}
+You have 3 possible actions:
 
 1. DONE — The target screen is already visible, or the modified view is on this screen.
 2. TAP: <label> — Tap on a visible element to navigate deeper. Use ONLY text you can see in the screenshot or labeled elements.
-3. SCROLL: DOWN (or UP) — The target view might be below/above the visible area on a scrollable screen. Use this if the navigation hints say the view is inside a ScrollView/List but you can't see it yet.
+3. SCROLL: DOWN (or UP) — The target view might be off-screen in a scrollable area.
 
 Decision guide:
 - If the changes affect the root/home screen, respond: DONE
 - If you see the target view content, respond: DONE
+- If you already tapped something and the screen looks the same, respond: DONE (you're already there)
 - If the screen is scrollable and the target might be off-screen, respond: SCROLL: DOWN
 - If there's a walkthrough/onboarding blocking, try: TAP: <dismiss button>
 - Otherwise navigate with: TAP: <label>
@@ -533,15 +541,15 @@ Respond with ONLY "DONE", "TAP: <label>", or "SCROLL: DOWN/UP" — nothing else.
             print(f"  🧠 Vision LLM decided: {response}")
             
         except Exception as e:
-            # Fallback to text-only LLM with just hierarchy if vision fails
             print(f"  ⚠️ Vision LLM failed ({e}), falling back to text-only...")
             try:
                 text_llm = get_llm(role="planning")
                 fallback_prompt = f"""You are navigating an iOS app. The developer modified: {file_list}
 Navigation hints: {nav_hints}
 Labeled elements on screen: {labeled_elements}
-Actions: DONE (target visible), TAP: <label>, SCROLL: DOWN/UP (if target is off-screen in a scrollable view).
-If the target is already showing or changes are on the home screen, respond DONE.
+{history_context}
+Actions: DONE (target visible), TAP: <label>, SCROLL: DOWN/UP (if target is off-screen).
+If the target is already showing, changes are on the home screen, or you already tapped the same element, respond DONE.
 Respond with ONLY "DONE", "TAP: <label>", or "SCROLL: DOWN/UP"."""
                 response = text_llm.invoke(fallback_prompt).content.strip()
                 print(f"  🧠 Fallback LLM decided: {response}")
@@ -550,19 +558,29 @@ Respond with ONLY "DONE", "TAP: <label>", or "SCROLL: DOWN/UP"."""
                 print(f"  ❌ Both LLMs failed: {e2}")
                 break
         
+        # ─── Loop Detection ───
+        normalized_response = response.strip()
+        if normalized_response in action_history:
+            nav_log.append(f"Step {step+1}: Loop detected ('{normalized_response}' was already attempted). Stopping.")
+            print(f"  🔄 Loop detected! Already did '{normalized_response}'. Stopping navigation.")
+            break
+        
         if response.startswith("DONE"):
             nav_log.append(f"Step {step+1}: Target screen reached.")
             print(f"  ✅ Target screen reached.")
             break
         elif response.startswith("TAP:"):
             label = response.replace("TAP:", "").strip().strip('"').strip("'")
+            action_history.append(normalized_response)
             nav_log.append(f"Step {step+1}: Tapping '{label}'")
             print(f"  🎯 Step {step+1}: Tapping '{label}'")
             
             success = run_maestro_single_tap(device_udid, workspace_path, bundle_id, label)
-            if not success:
-                nav_log.append(f"  ↳ Tap failed!")
-                print(f"  ❌ Tap on '{label}' failed!")
+            if success:
+                print(f"  ✅ Maestro tap executed successfully")
+            else:
+                nav_log.append(f"  ↳ Maestro tap failed!")
+                print(f"  ❌ Maestro tap on '{label}' failed! Stopping.")
                 break
             
             time.sleep(3)
@@ -570,11 +588,14 @@ Respond with ONLY "DONE", "TAP: <label>", or "SCROLL: DOWN/UP"."""
             direction = response.replace("SCROLL:", "").strip().upper()
             if direction not in ("DOWN", "UP", "LEFT", "RIGHT"):
                 direction = "DOWN"
+            action_history.append(normalized_response)
             nav_log.append(f"Step {step+1}: Scrolling {direction}")
             print(f"  📜 Step {step+1}: Scrolling {direction}")
             
             success = run_maestro_scroll(device_udid, workspace_path, bundle_id, direction)
-            if not success:
+            if success:
+                print(f"  ✅ Maestro scroll executed successfully")
+            else:
                 nav_log.append(f"  ↳ Scroll failed!")
                 print(f"  ❌ Scroll {direction} failed!")
                 break
