@@ -29,7 +29,7 @@ Gathers intelligence, understands the task, and produces an architectural bluepr
 |----------|---------|
 | **Vetting** | Filters vague/spam issues. Posts a GitHub clarification comment if the issue lacks context; otherwise marks it `ACTIONABLE`. |
 | **Workspace Init** | Clones the target repo into an isolated APFS Copy-on-Write sandbox. Checks out the agent's working branch (`ios-agent-issue-{id}`). |
-| **Context Aggregator** | Async node that queries **Serena MCP** (codebase symbols) and **XcodeBuildMCP** (build settings) to inject real architectural awareness into the planner prompt. |
+| **Context Aggregator** | Async ReAct agent that: 1. Discovers codebase patterns via **Serena MCP** and **XcodeBuildMCP**. 2. Parses `.lios-config.yml` rules. 3. Aggregates any `.agent/**/*.md` instructions. 4. Fetches external web links if referenced in the target issue. |
 | **Planner** | Consumes MCP context and outputs a strict Pydantic `FeatureBlueprint` JSON with mandatory `files_to_test` (enforcing TDD). |
 | **Blueprint Presentation** *(HITL)* | Posts the blueprint as Markdown to the GitHub Issue. **Halts** the pipeline until a human comments **"Approve"**. |
 
@@ -42,9 +42,9 @@ Writes code through domain-specialized sub-agents using **surgical line-range pa
 | Sub-Node | Purpose |
 |----------|---------|
 | **Router** | Analyzes the blueprint's architecture components and file paths to classify the task into domains (`ui`, `network`, or `general`), then dispatches to the appropriate sub-agent(s). |
-| **UI Sub-Agent** | Specialist for SwiftUI/UIKit Views, Construkt design tokens, Screens, and Components. Uses a focused system prompt scoped to the view layer. |
-| **Network Sub-Agent** | Specialist for API Services, Repositories, DTOs, and Data Models. Follows clean architecture patterns (Repository → Service → DTO → Domain Model). |
-| **General Coder** | Fallback for tasks that don't fit UI or Network domains. |
+| **UI Sub-Agent** | Specialist for SwiftUI/UIKit Views, Construkt design tokens, Screens, and Components. Runs with targeted `.agent/skills/` markdown injected directly into its system prompt. |
+| **Network Sub-Agent** | Specialist for API Services, Repositories, DTOs, and Data Models. Follows clean architecture patterns (Repository → Service → DTO → Domain Model), guided by team rules. |
+| **General Coder** | Fallback for tasks that don't fit UI or Network domains. Equipped with the same dynamic rule context. |
 
 > If both UI and Network domains are detected, they run **sequentially** (UI first → Network second) before reaching the Review phase.
 
