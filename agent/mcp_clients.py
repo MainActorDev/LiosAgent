@@ -45,7 +45,7 @@ class MCPManager:
         # SerenaMCP requires `uvx` (from the `uv` Python toolchain) to be installed
         uvx_path = shutil.which("uvx")
         if uvx_path:
-            server_configs.append(("SerenaMCP", uvx_path, ["--from", "git+https://github.com/oraios/serena", "serena", "start-mcp-server", "--project-from-cwd", "--open-web-dashboard", "false"]))
+            server_configs.append(("SerenaMCP", uvx_path, ["--from", "git+https://github.com/oraios/serena", "serena", "start-mcp-server", "--project", workspace_path, "--open-web-dashboard", "false"]))
         else:
             print("ℹ️ SerenaMCP skipped: `uvx` not found. Install with: curl -LsSf https://astral.sh/uv/install.sh | sh")
         
