@@ -312,7 +312,7 @@ RULES:
         prompt += f"\n\n🚨 PREVIOUS ERRORS:\n{state.get('compiler_errors')[-1]}\nFix only UI-related errors."
         
     print(f"👨‍💻 UI Sub-Agent is generating and applying code to {workspace_path}...")
-    result = agent_executor.invoke({"messages": [("user", prompt)]}, config={"recursion_limit": 10})
+    result = agent_executor.invoke({"messages": [("user", prompt)]}, config={"recursion_limit": 30})
     
     for msg in result.get("messages", []):
         print(f"[{msg.type.upper()}] {msg.content}")
@@ -368,7 +368,7 @@ RULES:
         prompt += f"\n\n🚨 PREVIOUS ERRORS:\n{state.get('compiler_errors')[-1]}\nFix only data/network-related errors."
         
     print(f"👨‍💻 Network Sub-Agent is generating and applying code to {workspace_path}...")
-    result = agent_executor.invoke({"messages": [("user", prompt)]}, config={"recursion_limit": 10})
+    result = agent_executor.invoke({"messages": [("user", prompt)]}, config={"recursion_limit": 30})
     
     for msg in result.get("messages", []):
         print(f"[{msg.type.upper()}] {msg.content}")
@@ -410,7 +410,7 @@ IMPORTANT RULES:
         prompt += f"\n\n🚨 PREVIOUS BUILD FAILED WITH ERRORS:\n{state.get('compiler_errors')[-1]}\nUse read_workspace_file_lines to find the broken lines, then patch_workspace_file to fix them."
         
     print(f"👨‍💻 General Coder is generating and applying code to {workspace_path}...")
-    result = agent_executor.invoke({"messages": [("user", prompt)]}, config={"recursion_limit": 10})
+    result = agent_executor.invoke({"messages": [("user", prompt)]}, config={"recursion_limit": 30})
     
     for msg in result.get("messages", []):
         print(f"[{msg.type.upper()}] {msg.content}")
