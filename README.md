@@ -29,7 +29,7 @@ Gathers intelligence, understands the task, and produces an architectural bluepr
 |----------|---------|
 | **Vetting** | Filters vague/spam issues. Posts a GitHub clarification comment if the issue lacks context; otherwise marks it `ACTIONABLE`. |
 | **Workspace Init** | Clones the target repo into an isolated APFS Copy-on-Write sandbox. Checks out the agent's working branch (`ios-agent-issue-{id}`). |
-| **Context Aggregator** | Async ReAct agent that: 1. Discovers codebase patterns via **Serena MCP** and **XcodeBuildMCP**. 2. Parses `.lios-config.yml` rules. 3. Aggregates any `.agent/**/*.md` instructions. 4. Fetches external web links if referenced in the target issue. |
+| **Context Aggregator** | Async ReAct agent that: 1. Discovers codebase patterns via **Serena MCP** and **XcodeBuildMCP**. 2. Aggregates `.agent/**/*.md` instructions. 3. Fetches external web links if referenced in the target issue. |
 | **Planner** | Consumes MCP context and outputs a strict Pydantic `FeatureBlueprint` JSON with mandatory `files_to_test` (enforcing TDD). |
 | **Blueprint Presentation** *(HITL)* | Posts the blueprint as Markdown to the GitHub Issue. **Halts** the pipeline until a human comments **"Approve"**. |
 
