@@ -564,7 +564,7 @@ def ui_vision_validator_node(state: AgentState):
 def should_proceed_from_ui_check(state: AgentState) -> str:
     """After UI vision check, decide whether to push or loop back to coder."""
     last_history = state.get("history", [""])[-1]
-    if "FAILED" in last_history and state.get("retries_count", 0) < 3:
+    if last_history.startswith("UI Vision Check: FAILED") and state.get("retries_count", 0) < 3:
         return "coder"
     return "push"
 
