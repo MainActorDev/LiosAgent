@@ -36,10 +36,18 @@ class MCPManager:
         if workspace_path:
             workspace_env["PWD"] = workspace_path
             
+        import shutil
+        
         server_configs = [
             ("XcodeBuildMCP", "npx", ["-y", "xcodebuildmcp@latest", "mcp"]),
-            ("SerenaMCP", "serena", ["mcp"])
         ]
+        
+        # SerenaMCP requires `uvx` (from the `uv` Python toolchain) to be installed
+        uvx_path = shutil.which("uvx")
+        if uvx_path:
+            server_configs.append(("SerenaMCP", uvx_path, ["serena", "mcp"]))
+        else:
+            print("ℹ️ SerenaMCP skipped: `uvx` not found. Install with: curl -LsSf https://astral.sh/uv/install.sh | sh")
         
         # 3. Optional Enterprise Integrations (Figma & Jira)
         instructions_lower = instructions.lower()
@@ -58,16 +66,28 @@ class MCPManager:
         for name, cmd, args in server_configs:
             try:
                 params = StdioServerParameters(command=cmd, args=args, env=workspace_env)
-                stdio_transport = await self._exit_stack.enter_async_context(stdio_client(params))
+                
+                # Enforce strict timeouts linearly to prevent buggy packages from infinitely locking the stream
+                stdio_transport = await asyncio.wait_for(
+                    self._exit_stack.enter_async_context(stdio_client(params)), 
+                    timeout=15.0
+                )
                 read, write = stdio_transport
-                session = await self._exit_stack.enter_async_context(ClientSession(read, write))
-                await session.initialize()
+                
+                session = await asyncio.wait_for(
+                    self._exit_stack.enter_async_context(ClientSession(read, write)),
+                    timeout=15.0
+                )
+                
+                await asyncio.wait_for(session.initialize(), timeout=15.0)
                 
                 # load_mcp_tools automatically bridges the MCP protocol to LangChain Tool objects
-                tools = await load_mcp_tools(session)
+                tools = await asyncio.wait_for(load_mcp_tools(session), timeout=15.0)
                 print(f"✅ Activated {len(tools)} tools from {name}")
                 all_tools.extend(tools)
                 self.sessions.append(session)
+            except asyncio.TimeoutError:
+                print(f"⚠️ Timeout Error: MCP Server {name} hung indefinitely while connecting and was terminated.")
             except Exception as e:
                 print(f"⚠️ Failed to connect to {name}: {e}")
                 

@@ -83,7 +83,11 @@ Investigate the following 7 categories using your tools and produce a structured
 Return your findings as a structured Markdown report with headers for each category.
 """
         
-        result = await agent_executor.ainvoke({"messages": [("user", prompt)]})
+        print("🕵️  Principal Architect is executing sub-agent loops to query tool integrations...")
+        result = await agent_executor.ainvoke(
+            {"messages": [("user", prompt)]},
+            config={"recursion_limit": 4}
+        )
         context_data = result["messages"][-1].content
     except Exception as e:
         context_data = f"Failed to execute context gathering: {e}"
@@ -125,10 +129,22 @@ Return your findings as a structured Markdown report with headers for each categ
     }
 
 def planner_node(state: AgentState):
-    llm = get_llm(role="planning").with_structured_output(FeatureBlueprint)
+    llm = get_llm(role="planning")
     instructions = state.get("instructions", "")
     mcp_context = state.get("mcp_context", "None")
     agent_skills = state.get("agent_skills", "No specific rules found.")
+    
+    # Build the JSON schema description for the LLM
+    schema_description = """
+You MUST respond with ONLY a valid JSON object (no markdown, no explanation, no code fences) matching this exact schema:
+{
+  "feature_name": "string - Name of the feature being built",
+  "files_to_create": [{"filepath": "string - absolute path", "purpose": "string - why this file is needed"}],
+  "files_to_modify": [{"filepath": "string - absolute path", "purpose": "string - why this file needs modification"}],
+  "files_to_test": [{"filepath": "string - absolute path", "purpose": "string - test suite purpose"}],
+  "architecture_components": ["string - design patterns used"]
+}
+"""
     
     prompt = f"""You are a Principal iOS Systems Architect. Design a strict architecture plan for this issue:
 {instructions}
@@ -144,8 +160,34 @@ If the External System Context includes a 'Prior Art Reference Template', you MU
 
 🔥 TDD ENFORCEMENT 🔥
 If this is a coding task, you MUST mandate TDD by defining the Swift Testing (`import Testing`) suites. Do NOT use XCTest. However, if this is purely a documentation or config task (e.g., updating a README.md), leave the testing and architecture arrays empty!
+
+{schema_description}
 """
-    blueprint: FeatureBlueprint = llm.invoke(prompt)
+    response = llm.invoke(prompt)
+    raw_text = response.content.strip()
+    
+    # Attempt to extract JSON from the response (handle markdown code fences)
+    import json, re
+    json_str = raw_text
+    
+    # Strip markdown code fences if present
+    fence_match = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', raw_text, re.DOTALL)
+    if fence_match:
+        json_str = fence_match.group(1).strip()
+    
+    try:
+        parsed = json.loads(json_str)
+        blueprint = FeatureBlueprint(**parsed)
+    except (json.JSONDecodeError, Exception) as e:
+        print(f"⚠️ Planner JSON parse failed: {e}. Building minimal blueprint from raw response.")
+        # Fallback: create a minimal valid blueprint from the raw text
+        blueprint = FeatureBlueprint(
+            feature_name=state.get("instructions", "Unknown Feature")[:80],
+            files_to_create=[],
+            files_to_modify=[FileModification(filepath="(see raw plan below)", purpose=raw_text[:500])],
+            files_to_test=[],
+            architecture_components=[]
+        )
     
     return {
         "blueprint": blueprint.dict(),
@@ -177,7 +219,9 @@ def blueprint_presentation_node(state: AgentState):
     md += "---\n*Please reply with **Approve** to execute this graph.*"
     
     if repo_full_name and installation_id:
-        post_github_comment(repo_full_name, task_id, installation_id, md)
+        print(f"✅ Generating Blueprint markdown and posting to GitHub for {repo_full_name}#{task_id}...")
+        result = post_github_comment(repo_full_name, task_id, installation_id, md)
+        print(f"GitHub Post Result: {result}")
         
     return {"history": ["Blueprint posted to GitHub. Suspended thread awaiting approval."]}
 
