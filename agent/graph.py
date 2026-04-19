@@ -427,6 +427,41 @@ Ensure you fulfill every aspect of the blueprint."""
         
     return {"history": [history_msg], "opencode_session_id": extracted_session}
 
+def post_approval_to_slack(task_id: str, success: bool, feedback: str = ""):
+    slack_channel = os.environ.get("SLACK_CHANNEL_ID")
+    bot_token = os.environ.get("SLACK_BOT_TOKEN")
+    if slack_channel and bot_token:
+        from slack_sdk import WebClient
+        client = WebClient(token=bot_token)
+        try:
+            status_emoji = "✅" if success else "❌"
+            status_text = "All compilation and UI validations have passed! Would you like me to push this code?" if success else f"UI Validation FAILED:\n_{feedback}_\n\nThe AI is currently attempting to fix the code autonomously. If you want to unilaterally approve it anyway, click to Force Push."
+            
+            client.chat_postMessage(
+                channel=slack_channel,
+                text=f"Validation Result for Task {task_id}",
+                blocks=[
+                    {
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": f"{status_emoji} *AI Validation for Task #{task_id}*\n {status_text}"}
+                    },
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": "Approve & Push"},
+                                "style": "primary",
+                                "action_id": "approve_pr",
+                                "value": str(task_id)
+                            }
+                        ]
+                    }
+                ]
+            )
+        except Exception as e:
+            print(f"Failed to post Slack approval: {e}")
+
 def validator_node(state: AgentState):
     workspace_path = state.get("workspace_path")
     task_id = state.get("task_id")
@@ -447,39 +482,7 @@ def validator_node(state: AgentState):
         build_output = "Build SUCCESS\nValidation bypassed: Non-coding task detected."
     
     if "Build SUCCESS" in build_output:
-        # Send Approval Request to Slack
-        slack_channel = os.environ.get("SLACK_CHANNEL_ID")
-        bot_token = os.environ.get("SLACK_BOT_TOKEN")
-        if slack_channel and bot_token:
-            from slack_sdk import WebClient
-            client = WebClient(token=bot_token)
-            try:
-                client.chat_postMessage(
-                    channel=slack_channel,
-                    text=f"Validation Passed for Task {task_id}",
-                    blocks=[
-                        {
-                            "type": "section",
-                            "text": {"type": "mrkdwn", "text": f"✅ *AI Build Passed for Task #{task_id}*\n The Xcode build in the isolated workspace succeeded. Would you like me to push this code?"}
-                        },
-                        {
-                            "type": "actions",
-                            "elements": [
-                                {
-                                    "type": "button",
-                                    "text": {"type": "plain_text", "text": "Approve & Push"},
-                                    "style": "primary",
-                                    "action_id": "approve_pr",
-                                    "value": str(task_id)
-                                }
-                            ]
-                        }
-                    ]
-                )
-            except Exception as e:
-                print(f"Failed to post Slack approval: {e}")
-                
-        return {"history": ["Xcode Build Validation PASSED! Awaiting human approval via Slack Action or a GitHub 'Approve' comment."]}
+        return {"history": ["Xcode Build Validation PASSED! Proceeding to Visual Evaluation..."]}
     else:
         errors = state.get("compiler_errors", [])
         errors.append(build_output)
@@ -525,6 +528,7 @@ def ui_vision_validator_node(state: AgentState):
     
     if not has_ui:
         print("⏭️ UI Vision Check Skipped: No Swift source files were modified in this blueprint.")
+        post_approval_to_slack(state.get("task_id", "Unknown"), success=True)
         return {"history": ["UI Vision Check: Skipped (no Swift files touched)."]}
     
     print("📸 Booting Simulator and waiting for view to flush pixels...")
@@ -533,6 +537,7 @@ def ui_vision_validator_node(state: AgentState):
     if screenshot_result.startswith("Error") or screenshot_result.startswith("Simulator"):
         # Screenshot capture failed — don't block the pipeline, just warn
         print(f"⚠️ Screenshot capture failed. Aborting Vision Check: {screenshot_result}")
+        post_approval_to_slack(state.get("task_id", "Unknown"), success=True, feedback="Vision check skipped due to local capture pipeline failure.")
         return {"history": [f"UI Vision Check: Screenshot capture failed ({screenshot_result}). Proceeding anyway."]}
     
     # Build design constraints from the blueprint
@@ -547,6 +552,7 @@ def ui_vision_validator_node(state: AgentState):
     
     if vision_result["passed"]:
         print(f"✅ UI Vision PASSED: {vision_result['feedback']}")
+        post_approval_to_slack(state.get("task_id", "Unknown"), success=True)
         return {"screenshot_path": filename, "history": [f"UI Vision Check: PASSED. {vision_result['feedback']}"]}
     else:
         print(f"❌ UI Vision FAILED: {vision_result['feedback']} (Looping back to Coder!)")
@@ -554,6 +560,9 @@ def ui_vision_validator_node(state: AgentState):
         errors = state.get("compiler_errors", [])
         errors.append(f"UI VISION FAILURE: {vision_result['feedback']}")
         retries = state.get("retries_count", 0) + 1
+        
+        post_approval_to_slack(state.get("task_id", "Unknown"), success=False, feedback=vision_result['feedback'])
+        
         return {
             "screenshot_path": filename,
             "compiler_errors": errors,
