@@ -23,3 +23,4 @@ class AgentState(TypedDict):
     active_subagents: List[str] # Which sub-agents the Router has dispatched (e.g. ["ui", "network"])
     opencode_session_id: str    # Unique session token to cleanly resume PR review comments
     screenshot_path: str        # Local workspace path to the generated UI pixel verification screenshot
+    video_path: str             # Local workspace path to the .mp4 runtime video telemetry

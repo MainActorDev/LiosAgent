@@ -147,6 +147,12 @@ def commit_and_push_branch(workspace_path: str, branch_name: str, commit_message
     try:
         subprocess.run(["git", "checkout", "-B", branch_name], cwd=workspace_path, check=True, capture_output=True)
         
+        # Strictly ignore sandbox visual telemetry during staging without dirtying the globally tracked .gitignore
+        exclude_path = os.path.join(workspace_path, ".git", "info", "exclude")
+        if os.path.exists(exclude_path):
+            with open(exclude_path, "a") as f:
+                f.write("\n# Agent UI Telemetry Overrides\nlios_screenshot_*.png\nlios_validation_run.mp4\n")
+        
         # Stage all real changes
         subprocess.run(["git", "add", "-A"], cwd=workspace_path, check=True, capture_output=True)
         
@@ -229,12 +235,13 @@ def post_github_comment(repo_full_name: str, issue_number: int, installation_id:
         gh = Github(access_token)
         repo = gh.get_repo(repo_full_name)
         issue = repo.get_issue(int(issue_number))
+        issue = gh.get_repo(repo_full_name).get_issue(int(issue_number))
         issue.create_comment(message)
         return "Comment posted successfully."
     except Exception as e:
         return f"Error posting GitHub comment: {str(e)}"
 
-def capture_simulator_screenshot(workspace_path: str, scheme: str = "App") -> str:
+def capture_simulator_screenshot(workspace_path: str, task_id: str) -> dict:
     """
     Boots the iOS Simulator, builds and launches the app, then captures a screenshot.
     Returns the absolute path to the screenshot PNG file.
@@ -267,7 +274,7 @@ def capture_simulator_screenshot(workspace_path: str, scheme: str = "App") -> st
                     break
         
         if not target_udid:
-            return "Error: No available iOS simulator device found."
+            return {"error": "Error: No available iOS simulator device found."}
         
         # 2. Boot if not already booted, and deeply wait for the iOS springboard daemon to complete launch
         subprocess.run(["open", "-a", "Simulator", "--args", "-CurrentDeviceUDID", target_udid], check=False)
@@ -318,7 +325,7 @@ def capture_simulator_screenshot(workspace_path: str, scheme: str = "App") -> st
         # 5. Extract the compiled .app bundle and its Bundle ID to install & launch it natively
         app_paths = glob.glob(os.path.join(build_dir, "DerivedData/Build/Products/*-iphonesimulator/*.app"))
         if not app_paths:
-            return "Error: Could not locate compiled .app bundle in DerivedData."
+            return {"error": "Error: Could not locate compiled .app bundle in DerivedData."}
         
         app_path = app_paths[0]
         subprocess.run(["xcrun", "simctl", "install", target_udid, app_path], check=True, capture_output=True)
@@ -328,10 +335,34 @@ def capture_simulator_screenshot(workspace_path: str, scheme: str = "App") -> st
         bundle_id_res = subprocess.run(["/usr/libexec/PlistBuddy", "-c", "Print CFBundleIdentifier", plist_path], capture_output=True, text=True)
         bundle_id = bundle_id_res.stdout.strip()
         
+        # 6. Start asynchronous video recording
+        video_path = os.path.join(workspace_path, f"lios_validation_run.mp4")
+        if os.path.exists(video_path):
+            os.remove(video_path)
+            
+        import signal
+        video_proc = subprocess.Popen(["xcrun", "simctl", "io", target_udid, "recordVideo", video_path])
+        
         if bundle_id:
             subprocess.run(["xcrun", "simctl", "launch", target_udid, bundle_id], check=False, capture_output=True)
+            
+        # 7. Execute Maestro if it was generated
+        maestro_flow = os.path.join(workspace_path, "maestro_flow.yaml")
+        if os.path.exists(maestro_flow):
+            print(f"🎭 Executing Maestro auto-traversal sequence...")
+            maestro_bin = os.path.expanduser("~/.maestro/bin/maestro")
+            if not os.path.exists(maestro_bin): maestro_bin = "maestro"
+            
+            with open(maestro_flow, "r") as f:
+                flow_data = f.read()
+            if "BUNDLE_ID_PLACEHOLDER" in flow_data and bundle_id:
+                flow_data = flow_data.replace("BUNDLE_ID_PLACEHOLDER", bundle_id)
+                with open(maestro_flow, "w") as f:
+                    f.write(flow_data)
+                    
+            subprocess.run([maestro_bin, "--device", target_udid, "test", maestro_flow], check=False)
         
-        # 6. Wait for simulator view rendering constraint layout to flush correctly to GPU
+        # 8. Wait for simulator view rendering constraint layout to flush correctly to GPU
         # We use 12 seconds to safely guarantee LaunchScreen animations have fully faded 
         # and SwiftUI asynchronous layout passes have deeply resolved, avoiding blank snapshots.
         import time
@@ -341,11 +372,18 @@ def capture_simulator_screenshot(workspace_path: str, scheme: str = "App") -> st
             check=True, capture_output=True
         )
         
-        return screenshot_path
+        # Gracefully terminate the video recording
+        video_proc.send_signal(signal.SIGINT)
+        try:
+            video_proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            video_proc.kill()
+        
+        return {"screenshot_path": screenshot_path, "video_path": video_path}
     except subprocess.CalledProcessError as e:
-        return f"Simulator capture failed: {e.stderr if e.stderr else str(e)}"
+        return {"error": f"Simulator capture failed: {e.stderr if e.stderr else str(e)}"}
     except Exception as e:
-        return f"Simulator capture error: {str(e)}"
+        return {"error": f"Simulator capture error: {str(e)}"}
 
 def validate_ui_with_vision(screenshot_path: str, design_constraints: str) -> dict:
     """

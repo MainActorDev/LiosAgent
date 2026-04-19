@@ -493,6 +493,64 @@ def validator_node(state: AgentState):
             "history": [f"Xcode Build Failed. Retry count: {retries}"]
         }
 
+def maestro_navigation_generator_node(state: AgentState):
+    """
+    Dynamically generates a Maestro UI-testing yaml configuration.
+    This enables the UI Vision Validator to naturally traverse nested iOS views 
+    by 'tapping' buttons deduced from the architect blueprint, instead of blindly photographing the root screen.
+    """
+    blueprint = state.get("blueprint", {})
+    workspace_path = state.get("workspace_path")
+    
+    files = blueprint.get("files_to_modify", []) + blueprint.get("files_to_create", [])
+    has_ui = any(str(f.get("filepath", "")).endswith(".swift") for f in files)
+    
+    if not has_ui:
+        return {"history": ["Maestro Generation: Skipped (no Swift files touched)."]}
+        
+    print(f"🤖 Generating autonomous Maestro UI interaction test flow...")
+    
+    llm = get_llm(role="planning")
+    instructions = state.get("instructions", "")
+    
+    prompt = f"""You are a QA automation engineer assisting an iOS agent.
+The agent just modified these architecture components to satisfy the following issue:
+"{instructions}"
+
+Components changed: {', '.join(blueprint.get('architecture_components', []))}
+
+Your goal is to write a strictly valid YAML file (using Maestro UI testing syntax) that launches the app and navigates exactly to the screen containing these changes.
+If the changes are already on the initial Home screen, write a basic yaml that just launches the app.
+If the changes are deep in the app (like "ProfileDetailView"), use `tapOn` commands with the natural english labels required to reach it.
+
+Respond ONLY with valid YAML. Do not use markdown blocks (no ```yaml)
+
+Example:
+appId: BUNDLE_ID_PLACEHOLDER
+---
+- launchApp
+- tapOn: "Profile"
+- tapOn: "Edit Details"
+"""
+    try:
+        response = llm.invoke(prompt).content.strip()
+        # Clean markdown if the LLM hallucinated it
+        if "```yaml" in response:
+            import re
+            match = re.search(r"```yaml\n(.*?)```", response, re.DOTALL)
+            if match: response = match.group(1)
+        elif "```" in response:
+            response = response.replace("```", "").strip()
+            
+        flow_path = os.path.join(workspace_path, "maestro_flow.yaml")
+        with open(flow_path, "w") as f:
+            f.write(response)
+        
+        return {"history": ["Auto-generated maestro traversal layout successfully!"]}
+    except Exception as e:
+        print(f"⚠️ Failed to generate Maestro flow: {e}")
+        return {"history": [f"Maestro Generation Failed: {e}"]}
+
 def should_retry(state: AgentState) -> str:
     """Conditional Edge logic: decides if we go back to CoderNode or give up."""
     # Break out to UI validation phase if build succeeded
@@ -531,14 +589,20 @@ def ui_vision_validator_node(state: AgentState):
         post_approval_to_slack(state.get("task_id", "Unknown"), success=True)
         return {"history": ["UI Vision Check: Skipped (no Swift files touched)."]}
     
+    task_id = state.get("task_id", "default_task")
     print("📸 Booting Simulator and waiting for view to flush pixels...")
-    screenshot_result = capture_simulator_screenshot(workspace_path)
+    screenshot_result = capture_simulator_screenshot(workspace_path, str(task_id))
     
-    if screenshot_result.startswith("Error") or screenshot_result.startswith("Simulator"):
-        # Screenshot capture failed — don't block the pipeline, just warn
-        print(f"⚠️ Screenshot capture failed. Aborting Vision Check: {screenshot_result}")
-        post_approval_to_slack(state.get("task_id", "Unknown"), success=True, feedback="Vision check skipped due to local capture pipeline failure.")
-        return {"history": [f"UI Vision Check: Screenshot capture failed ({screenshot_result}). Proceeding anyway."]}
+    if "error" in screenshot_result:
+        print(f"⚠️ Screenshot capture failed. Aborting Vision Check: {screenshot_result['error']}")
+        
+        post_approval_to_slack(state.get("task_id", "Unknown"), success=False, feedback=screenshot_result['error'])
+        
+        return {
+            "screenshot_path": "",
+            "video_path": "",
+            "history": [f"UI Vision Check: FATAL ERROR. {screenshot_result['error']}"]
+        }
     
     # Build design constraints from the blueprint
     design_constraints = f"Architecture components: {', '.join(arch_components)}\n"
@@ -547,13 +611,18 @@ def ui_vision_validator_node(state: AgentState):
     
     # Run the vision validation
     print(f"🤖 Sending snapshot to Multimodal LLM constraints verification...")
-    vision_result = validate_ui_with_vision(screenshot_result, design_constraints)
-    filename = os.path.basename(screenshot_result)
+    vision_result = validate_ui_with_vision(screenshot_result.get("screenshot_path", ""), design_constraints)
+    filename = os.path.basename(screenshot_result.get("screenshot_path", ""))
     
+    if screenshot_result.get("video_path"):
+        video_filename = os.path.basename(screenshot_result.get("video_path"))
+    else:
+        video_filename = ""
+        
     if vision_result["passed"]:
         print(f"✅ UI Vision PASSED: {vision_result['feedback']}")
         post_approval_to_slack(state.get("task_id", "Unknown"), success=True)
-        return {"screenshot_path": filename, "history": [f"UI Vision Check: PASSED. {vision_result['feedback']}"]}
+        return {"screenshot_path": filename, "video_path": video_filename, "history": [f"UI Vision Check: PASSED. {vision_result['feedback']}"]}
     else:
         print(f"❌ UI Vision FAILED: {vision_result['feedback']}")
         # Post the failure to slack but DO NOT loop back to the coder node. Let the human decide!
@@ -565,6 +634,7 @@ def ui_vision_validator_node(state: AgentState):
         
         return {
             "screenshot_path": filename,
+            "video_path": video_filename,
             "compiler_errors": errors,
             "retries_count": retries,
             "history": [f"UI Vision Check: FAILED. {vision_result['feedback']}"]
@@ -666,6 +736,7 @@ def build_graph(checkpointer=None):
     graph.add_node("blueprint_approval_gate", blueprint_approval_gate)
     graph.add_node("architect_coder", architect_coder_node)
     graph.add_node("validator", validator_node)
+    graph.add_node("maestro_navigation_generator", maestro_navigation_generator_node)
     graph.add_node("ui_vision_check", ui_vision_validator_node)
     
     def push_node(state: AgentState):
@@ -697,6 +768,11 @@ def build_graph(checkpointer=None):
             if rendered_shot:
                 comment += "\n### 📱 Simulator UX Snapshot\n"
                 comment += f'<img src="https://raw.githubusercontent.com/{repo_full_name}/{branch_name}/{rendered_shot}" width="300" alt="Simulator Capture" />\n'
+                
+            rendered_video = state.get("video_path", "")
+            if rendered_video:
+                comment += "\n### 🎥 UI Traversal Telemetry\n"
+                comment += f'Watch the Maestro AI execution:\n<video src="https://raw.githubusercontent.com/{repo_full_name}/{branch_name}/{rendered_video}" width="300" controls></video>\n'
                 
             comment += f"\n<details><summary><b>Git Push Receipt</b></summary>\n\n```text\n{push_msg}\n```\n</details>\n\n### 🚀 [Click here to quickly open a Pull Request!](https://github.com/{repo_full_name}/compare/{branch_name}?expand=1)"
         
@@ -751,8 +827,10 @@ def build_graph(checkpointer=None):
     # Conditional logic out of the validator (loops back to architect_coder on failure)
     graph.add_conditional_edges("validator", should_retry, {
         "coder": "architect_coder",           # Loop back through OpenCode for targeted fixes
-        "ui_check": "ui_vision_check"  # Build passed, run visual check
+        "ui_check": "maestro_navigation_generator"  # Build passed, generate UI nav first
     })
+    
+    graph.add_edge("maestro_navigation_generator", "ui_vision_check")
     
     # Conditional logic out of the UI vision check
     graph.add_conditional_edges("ui_vision_check", should_proceed_from_ui_check, {
