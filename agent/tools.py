@@ -74,33 +74,14 @@ def commit_and_push_branch(workspace_path: str, branch_name: str, commit_message
     try:
         subprocess.run(["git", "checkout", "-B", branch_name], cwd=workspace_path, check=True, capture_output=True)
         
-        # Forcefully untrack .serena/ artifacts BEFORE checking status.
-        # .gitignore alone doesn't work if files are already tracked in the repo's history.
-        serena_dir = os.path.join(workspace_path, ".serena")
-        if os.path.isdir(serena_dir):
-            subprocess.run(["git", "rm", "-r", "--cached", "--quiet", ".serena/"], cwd=workspace_path, capture_output=True)
-        
-        # Ensure .serena/ is in .gitignore so it never gets re-added
-        gitignore_path = os.path.join(workspace_path, ".gitignore")
-        if os.path.exists(gitignore_path):
-            with open(gitignore_path, "r") as f:
-                existing = f.read()
-            if ".serena/" not in existing:
-                with open(gitignore_path, "a") as f:
-                    f.write("\n.serena/\n")
-        else:
-            with open(gitignore_path, "w") as f:
-                f.write(".serena/\n")
-        
         # Stage all real changes
         subprocess.run(["git", "add", "-A"], cwd=workspace_path, check=True, capture_output=True)
         
-        # Check what's actually staged — exclude .gitignore-only changes
+        # Check what's actually staged
         staged = subprocess.run(["git", "diff", "--cached", "--name-only"], cwd=workspace_path, capture_output=True, text=True)
-        staged_files = [f for f in staged.stdout.strip().split("\n") if f and not f.startswith(".serena/")]
+        staged_files = [f for f in staged.stdout.strip().split("\n") if f]
         
-        # If the only staged change is .gitignore itself (from our injection), that doesn't count
-        if not staged_files or (len(staged_files) == 1 and staged_files[0] == ".gitignore"):
+        if not staged_files:
             # Reset everything so we don't leave a dirty state
             subprocess.run(["git", "checkout", "--", "."], cwd=workspace_path, capture_output=True)
             return "SKIPPED: No files were fundamentally changed by the Agent. Working tree is completely clean."
