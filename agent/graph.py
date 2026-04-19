@@ -325,19 +325,11 @@ Ensure you fulfill every aspect of the blueprint."""
     import subprocess
     
     # We use npx --yes to ensure the CLI installs silently without blocking if not cached globally
+    # Streaming output naturally to the terminal without capturing prevents the server from appearing frozen
     process = subprocess.run(
         ["npx", "--yes", "opencode-ai", "--query", prompt],
-        cwd=workspace_path,
-        text=True,
-        capture_output=True
+        cwd=workspace_path
     )
-    
-    # Print the output purely so the Python log shows what OpenCode actually did
-    print("--- OpenCode Output ---")
-    print(process.stdout)
-    if process.stderr:
-        print("--- OpenCode Error Stream ---")
-        print(process.stderr)
         
     return {"history": ["OpenCode execution complete."]}
 
