@@ -225,8 +225,30 @@ def commit_and_push_branch(workspace_path: str, branch_name: str, commit_message
         status = subprocess.run(["git", "status", "--porcelain"], cwd=workspace_path, capture_output=True, text=True)
         if not status.stdout.strip():
             return "SKIPPED: No files were fundamentally changed by the Agent. Working tree is completely clean."
-            
-        subprocess.run(["git", "add", "."], cwd=workspace_path, check=True, capture_output=True)
+        
+        # Ensure MCP tool artifacts (.serena cache, etc.) are never committed
+        gitignore_path = os.path.join(workspace_path, ".gitignore")
+        ignore_entries = [".serena/"]
+        if os.path.exists(gitignore_path):
+            with open(gitignore_path, "r") as f:
+                existing = f.read()
+            for entry in ignore_entries:
+                if entry not in existing:
+                    with open(gitignore_path, "a") as f:
+                        f.write(f"\n{entry}\n")
+        else:
+            with open(gitignore_path, "w") as f:
+                f.write("\n".join(ignore_entries) + "\n")
+        
+        # Reset any already-staged .serena files, then stage real changes
+        subprocess.run(["git", "reset", "--", ".serena/"], cwd=workspace_path, capture_output=True)
+        subprocess.run(["git", "add", "-A"], cwd=workspace_path, check=True, capture_output=True)
+        
+        # Re-check: after excluding .serena, is there actually anything left?
+        status2 = subprocess.run(["git", "diff", "--cached", "--stat"], cwd=workspace_path, capture_output=True, text=True)
+        if not status2.stdout.strip():
+            return "SKIPPED: No files were fundamentally changed by the Agent. Working tree is completely clean."
+        
         subprocess.run(["git", "commit", "-m", commit_message], cwd=workspace_path, check=True, capture_output=True)
         
         # Authenticate the Remote if a token is available
