@@ -193,13 +193,18 @@ def commit_and_push_branch(workspace_path: str, branch_name: str, commit_message
     """
     try:
         subprocess.run(["git", "checkout", "-B", branch_name], cwd=workspace_path, check=True, capture_output=True)
+        
+        status = subprocess.run(["git", "status", "--porcelain"], cwd=workspace_path, capture_output=True, text=True)
+        if not status.stdout.strip():
+            return "SKIPPED: No files were fundamentally changed by the Agent. Working tree is completely clean."
+            
         subprocess.run(["git", "add", "."], cwd=workspace_path, check=True, capture_output=True)
         subprocess.run(["git", "commit", "-m", commit_message], cwd=workspace_path, check=True, capture_output=True)
         # Push the branch to the remote origin
         push_result = subprocess.run(["git", "push", "-u", "origin", branch_name], cwd=workspace_path, check=True, capture_output=True, text=True)
-        return f"Successfully pushed branch `{branch_name}` to remote. Output: {push_result.stdout}"
+        return f"SUCCESS: Successfully pushed branch `{branch_name}` to remote.\n\nOutput: {push_result.stdout}"
     except subprocess.CalledProcessError as e:
-        return f"Error during git push: {e.stderr}"
+        return f"ERROR: Error during git operations: {e.stderr}"
 
 def post_github_comment(repo_full_name: str, issue_number: int, installation_id: str, message: str) -> str:
     """Posts a comment on a GitHub issue using the GitHub App's credentials."""

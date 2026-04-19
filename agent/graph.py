@@ -612,8 +612,11 @@ def build_graph():
         print(f"🚀 Pushing successfully validated code for #{task_id}...")
         push_msg = commit_and_push_branch(workspace_path, branch_name, f"Agent Implementation for #{task_id}")
         
-        # Notify developer
-        comment = f"✅ **Coding & Validation Complete!**\n\nThe background agents compiled the code successfully and the UI tests passed.\nAll logic and design tokens have been safely pushed to the remote branch `{branch_name}`.\n\nYou can now open a Pull Request!"
+        # Notify developer based on the precise outcome
+        if "ERROR" in push_msg or "SKIPPED" in push_msg:
+            comment = f"⚠️ **Push Halted**\n\nThe orchestrator completed execution but the final push was aborted:\n```text\n{push_msg}\n```\n\n*(This typically means the LLM didn't actually modify any files in the workspace, or there was a git authentication issue).*”"
+        else:
+            comment = f"✅ **Coding & Validation Complete!**\n\nThe background agents compiled the code successfully and the UI tests passed.\nAll logic and design tokens have been safely pushed to the remote branch `{branch_name}`.\n\n<details><summary><b>Git Push Receipt</b></summary>\n\n```text\n{push_msg}\n```\n</details>\n\nYou can now open a Pull Request!"
         
         if repo_full_name and installation_id:
             post_github_comment(repo_full_name, task_id, installation_id, comment)
