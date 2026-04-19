@@ -297,226 +297,13 @@ def _classify_blueprint_domains(blueprint: dict) -> list:
     
     return domains
 
-def router_node(state: AgentState):
-    """Analyzes the blueprint and determines which sub-agents to activate."""
-    blueprint = state.get("blueprint", {})
-    domains = _classify_blueprint_domains(blueprint)
-    return {
-        "active_subagents": domains,
-        "history": [f"Router: Dispatching to sub-agents: {', '.join(domains)}"]
-    }
-
-def should_route_subagent(state: AgentState) -> str:
-    """Conditional edge: route to the appropriate sub-agent based on classification."""
-    domains = state.get("active_subagents", ["general"])
-    if "ui" in domains:
-        return "ui_subagent"
-    elif "network" in domains:
-        return "network_subagent"
-    return "general_coder"
-
-async def ui_subagent_node(state: AgentState):
-    """Specialized sub-agent focused exclusively on UI/View layer code."""
-    llm = get_llm(role="coding")
+async def architect_coder_node(state: AgentState):
+    """Stateless Node wrapper for the OpenCode autonomous agent runtime."""
     workspace_path = state.get("workspace_path")
     blueprint = state.get("blueprint", {})
     agent_skills = state.get("agent_skills", "No custom rules found.")
     
-    from agent.mcp_clients import MCPManager
-    manager = MCPManager()
-    try:
-        tools = await manager.connect_and_get_tools(workspace_path, state.get("instructions", ""), mode="coder")
-        if not tools:
-            print("⚠️ Serena tools unavailable, falling back to Python tools")
-            from agent.tools import list_workspace_files, run_shell_command
-            tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file, list_workspace_files, run_shell_command]
-        
-        # Inject localized python fallback tools that omit workspace_path and match Serena's signature footprint
-        from langchain_core.tools import tool
-        from agent.tools import read_workspace_file, run_shell_command, write_workspace_file
-        
-        @tool
-        def overwrite_prose_file(file_relative_path: str, content: str) -> str:
-            """
-            Overwrites an entire file with the provided content. 
-            MANDATORY: Use this tool to completely overwrite Markdown files (like README.md) instead of using 'replace_content'.
-            """
-            return write_workspace_file.invoke({"workspace_path": workspace_path, "file_relative_path": file_relative_path, "content": content})
-            
-        @tool
-        def execute_shell(command: str) -> str:
-            """Executes a bash shell command in the project root."""
-            return run_shell_command.invoke({"workspace_path": workspace_path, "command": command})
-            
-        tools.extend([overwrite_prose_file, execute_shell])
-        
-        from langgraph.prebuilt import create_react_agent
-        agent_executor = create_react_agent(llm, tools=tools)
-        
-        prompt = f"""You are a Senior iOS UI/UX Engineer specialized in pixel-perfect SwiftUI and UIKit development.
-You ONLY work on SwiftUI Views, UIKit ViewControllers, Construkt design tokens, and UI components.
-
-Workspace: {os.path.abspath(workspace_path)}
-Task: {state.get('instructions')}
-
-Blueprint:
-{blueprint}
-
-TEAM RULES & AGENT SKILLS:
-{agent_skills}
-
-Focus ONLY on files related to Views, Screens, Components, and Cells.
-Use Construkt design tokens (bgPrimary, textPrimary, etc.) for all colors and spacing.
-
-RULES:
-1. Use `find_file` or `list_dir` to discover files.
-2. Use `read_file` to view file contents.
-3. Use Serena's `replace_content` for surgical Swift code edits. Use `overwrite_prose_file` to completely overwrite markdown files.
-4. Use `execute_shell` to run git log, git diff, grep, or any shell command you need.
-5. Create all test files from the blueprint's files_to_test that relate to UI.
-
-CRITICAL URGENCY: You have a strict step limit. Do not over-explore the codebase. Gather essential context quickly, and act immediately. DO NOT waste steps doing excessive reads. When updating prose or documentation, MAKE broad structural changes efficiently."""
-        
-        if state.get("compiler_errors"):
-            prompt += f"\n\n🚨 PREVIOUS ERRORS:\n{state.get('compiler_errors')[-1]}\nFix only UI-related errors."
-            
-        print(f"👨‍💻 UI Sub-Agent is generating and applying code to {workspace_path}...")
-        result = await agent_executor.ainvoke({"messages": [("user", prompt)]}, config={"recursion_limit": 100})
-        
-        for msg in result.get("messages", []):
-            print(f"[{msg.type.upper()}] {msg.content}")
-            if hasattr(msg, "tool_calls") and msg.tool_calls:
-                print(f"🛠️ Sub-Agent requested tool execution: {msg.tool_calls}")
-    finally:
-        await manager.cleanup()
-            
-    # Chain to network sub-agent if both domains are active
-    domains = state.get("active_subagents", [])
-    next_history = "UI Sub-Agent Complete."
-    return {"history": [next_history]}
-
-def should_chain_after_ui(state: AgentState) -> str:
-    """After UI sub-agent, check if network sub-agent also needs to run."""
-    domains = state.get("active_subagents", [])
-    if "network" in domains:
-        return "network_subagent"
-    return "validator"
-
-async def network_subagent_node(state: AgentState):
-    """Specialized sub-agent focused exclusively on API/Network/Data layer code."""
-    llm = get_llm(role="coding")
-    workspace_path = state.get("workspace_path")
-    blueprint = state.get("blueprint", {})
-    agent_skills = state.get("agent_skills", "No custom rules found.")
-    
-    from agent.mcp_clients import MCPManager
-    manager = MCPManager()
-    try:
-        tools = await manager.connect_and_get_tools(workspace_path, state.get("instructions", ""), mode="coder")
-        if not tools:
-            print("⚠️ Serena tools unavailable, falling back to Python tools")
-            from agent.tools import list_workspace_files, run_shell_command
-            tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file, list_workspace_files, run_shell_command]
-        
-        # Inject localized python fallback tools that omit workspace_path and match Serena's signature footprint
-        from langchain_core.tools import tool
-        from agent.tools import read_workspace_file, run_shell_command, write_workspace_file
-        
-        @tool
-        def overwrite_prose_file(file_relative_path: str, content: str) -> str:
-            """
-            Overwrites an entire file with the provided content. 
-            MANDATORY: Use this tool to completely overwrite Markdown files (like README.md) instead of using 'replace_content'.
-            """
-            return write_workspace_file.invoke({"workspace_path": workspace_path, "file_relative_path": file_relative_path, "content": content})
-            
-        @tool
-        def execute_shell(command: str) -> str:
-            """Executes a bash shell command in the project root."""
-            return run_shell_command.invoke({"workspace_path": workspace_path, "command": command})
-            
-        tools.extend([overwrite_prose_file, execute_shell])
-        
-        from langgraph.prebuilt import create_react_agent
-        agent_executor = create_react_agent(llm, tools=tools)
-        
-        prompt = f"""You are a Senior iOS Data Systems Engineer specialized in robust Network and API layers.
-You ONLY work on API Services, Repositories, Data Models, DTOs, and Networking logic.
-
-Workspace: {os.path.abspath(workspace_path)}
-Task: {state.get('instructions')}
-
-Blueprint:
-{blueprint}
-
-TEAM RULES & AGENT SKILLS:
-{agent_skills}
-
-Focus ONLY on files related to Services, Repositories, Models, APIs, and DTOs.
-Follow clean architecture patterns: Repository -> Service -> DTO -> Domain Model.
-
-RULES:
-1. Use `find_file` or `list_dir` to discover files.
-2. Use `read_file` to view file contents.
-3. Use Serena's `replace_content` for surgical Swift code edits. Use `overwrite_prose_file` to completely overwrite markdown files.
-4. Use `execute_shell` to run git log, git diff, grep, or any shell command you need.
-5. Create all test files from the blueprint's files_to_test that relate to networking.
-
-CRITICAL URGENCY: You have a strict step limit. Do not over-explore the codebase. Gather essential context quickly, and act immediately. DO NOT waste steps doing excessive reads."""
-        
-        if state.get("compiler_errors"):
-            prompt += f"\n\n🚨 PREVIOUS ERRORS:\n{state.get('compiler_errors')[-1]}\nFix only data/network-related errors."
-            
-        print(f"👨‍💻 Network Sub-Agent is generating and applying code to {workspace_path}...")
-        result = await agent_executor.ainvoke({"messages": [("user", prompt)]}, config={"recursion_limit": 100})
-        
-        for msg in result.get("messages", []):
-            print(f"[{msg.type.upper()}] {msg.content}")
-            if hasattr(msg, "tool_calls") and msg.tool_calls:
-                print(f"🛠️ Sub-Agent requested tool execution: {msg.tool_calls}")
-    finally:
-        await manager.cleanup()
-            
-    return {"history": ["Network Sub-Agent Complete."]}
-
-async def general_coder_node(state: AgentState):
-    """Fallback general-purpose coder for tasks that don't fit UI or Network domains."""
-    llm = get_llm(role="coding")
-    workspace_path = state.get("workspace_path")
-    blueprint = state.get("blueprint", {})
-    agent_skills = state.get("agent_skills", "No custom rules found.")
-    
-    from agent.mcp_clients import MCPManager
-    manager = MCPManager()
-    try:
-        tools = await manager.connect_and_get_tools(workspace_path, state.get("instructions", ""), mode="coder")
-        if not tools:
-            print("⚠️ Serena tools unavailable, falling back to Python tools")
-            from agent.tools import list_workspace_files, run_shell_command
-            tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file, list_workspace_files, run_shell_command]
-        # Inject localized python fallback tools that omit workspace_path and match Serena's signature footprint
-        from langchain_core.tools import tool
-        from agent.tools import read_workspace_file, run_shell_command, write_workspace_file
-        
-        @tool
-        def overwrite_prose_file(file_relative_path: str, content: str) -> str:
-            """
-            Overwrites an entire file with the provided content. 
-            MANDATORY: Use this tool to completely overwrite Markdown files (like README.md) instead of using 'replace_content'.
-            """
-            return write_workspace_file.invoke({"workspace_path": workspace_path, "file_relative_path": file_relative_path, "content": content})
-            
-        @tool
-        def execute_shell(command: str) -> str:
-            """Executes a bash shell command in the project root."""
-            return run_shell_command.invoke({"workspace_path": workspace_path, "command": command})
-            
-        tools.extend([overwrite_prose_file, execute_shell])
-        
-        from langgraph.prebuilt import create_react_agent
-        agent_executor = create_react_agent(llm, tools=tools)
-        
-        prompt = f"""You are a versatile Staff Software Engineer working in workspace: {os.path.abspath(workspace_path)}
+    prompt = f"""You are a versatile Principal Software Engineer working in workspace: {os.path.abspath(workspace_path)}
 
 Your task: {state.get('instructions')}
 
@@ -527,28 +314,32 @@ TEAM RULES & AGENT SKILLS:
 {agent_skills}
 
 IMPORTANT RULES:
-1. Use `find_file` or `list_dir` to discover files in the project.
-2. Use `read_file` to view file contents.
-3. Use Serena's `replace_content` for surgical Swift code edits. Use `overwrite_prose_file` to COMPLETELY OVERWRITE files that are mostly prose (like README.md) because line-by-line patching is too fragile for Markdown.
-4. Use `execute_shell` to run git log, git diff, grep, or any shell command you need to understand recent changes.
-5. Always create test files listed in the blueprint's files_to_test.
-
-CRITICAL URGENCY: You have a strict step limit. Do not over-explore the codebase. Gather essential context quickly, and act immediately. DO NOT waste steps doing excessive reads. When updating prose or documentation, MAKE broad structural changes efficiently."""
+Solve the task completely, adhering to the design patterns and rules defined above. 
+Ensure you fulfill every aspect of the blueprint."""
+    
+    if state.get("compiler_errors"):
+        prompt += f"\n\n🚨 PREVIOUS BUILD FAILED WITH ERRORS:\n{state.get('compiler_errors')[-1]}\nDiagnose and fix these specific compilation errors."
         
-        if state.get("compiler_errors"):
-            prompt += f"\n\n🚨 PREVIOUS BUILD FAILED WITH ERRORS:\n{state.get('compiler_errors')[-1]}\nUse read_file to find the broken lines, then replace_content to fix them."
-            
-        print(f"👨‍💻 General Coder is generating and applying code to {workspace_path}...")
-        result = await agent_executor.ainvoke({"messages": [("user", prompt)]}, config={"recursion_limit": 100})
+    print(f"👨‍💻 Architect Coder is farming execution to OpenCode in {workspace_path}...")
+    
+    import subprocess
+    
+    # We use npx --yes to ensure the CLI installs silently without blocking if not cached globally
+    process = subprocess.run(
+        ["npx", "--yes", "opencode-ai", "--query", prompt],
+        cwd=workspace_path,
+        text=True,
+        capture_output=True
+    )
+    
+    # Print the output purely so the Python log shows what OpenCode actually did
+    print("--- OpenCode Output ---")
+    print(process.stdout)
+    if process.stderr:
+        print("--- OpenCode Error Stream ---")
+        print(process.stderr)
         
-        for msg in result.get("messages", []):
-            print(f"[{msg.type.upper()}] {msg.content}")
-            if hasattr(msg, "tool_calls") and msg.tool_calls:
-                print(f"🛠️ Sub-Agent requested tool execution: {msg.tool_calls}")
-    finally:
-        await manager.cleanup()
-            
-    return {"history": ["General Coder Complete (Serena-powered editing)."]}
+    return {"history": ["OpenCode execution complete."]}
 
 def validator_node(state: AgentState):
     workspace_path = state.get("workspace_path")
@@ -750,10 +541,7 @@ def build_graph(checkpointer=None):
     graph.add_node("context_aggregator", context_aggregator_node)
     graph.add_node("planner", planner_node)
     graph.add_node("blueprint_presentation", blueprint_presentation_node)
-    graph.add_node("router", router_node)
-    graph.add_node("ui_subagent", ui_subagent_node)
-    graph.add_node("network_subagent", network_subagent_node)
-    graph.add_node("general_coder", general_coder_node)
+    graph.add_node("architect_coder", architect_coder_node)
     graph.add_node("validator", validator_node)
     graph.add_node("ui_vision_check", ui_vision_validator_node)
     
@@ -802,39 +590,32 @@ def build_graph(checkpointer=None):
     graph.add_edge("initialize", "context_aggregator")
     graph.add_edge("context_aggregator", "planner")
     graph.add_edge("planner", "blueprint_presentation")
-    graph.add_edge("blueprint_presentation", "router")
     
-    # Router dispatches to the correct sub-agent
-    graph.add_conditional_edges("router", should_route_subagent, {
-        "ui_subagent": "ui_subagent",
-        "network_subagent": "network_subagent",
-        "general_coder": "general_coder"
-    })
+    # Send directly to the unified architect_coder from presentation
+    graph.add_edge("blueprint_presentation", "architect_coder")
     
-    # UI sub-agent chains to network if both are needed, otherwise goes to validator
-    graph.add_conditional_edges("ui_subagent", should_chain_after_ui, {
-        "network_subagent": "network_subagent",
-        "validator": "validator"
-    })
+    # After architecture completes, validate the code
+    graph.add_edge("architect_coder", "validator")
     
-    graph.add_edge("network_subagent", "validator")
-    graph.add_edge("general_coder", "validator")
-    
-    # Conditional logic out of the validator (loops back to router on failure)
+    # Conditional logic out of the validator (loops back to architect_coder on failure)
     graph.add_conditional_edges("validator", should_retry, {
-        "coder": "router",           # Loop back through router for targeted fixes
+        "coder": "architect_coder",           # Loop back through OpenCode for targeted fixes
         "ui_check": "ui_vision_check"  # Build passed, run visual check
     })
     
     # Conditional logic out of the UI vision check
     graph.add_conditional_edges("ui_vision_check", should_proceed_from_ui_check, {
-        "coder": "router",    # Loop back through router for UI fixes
+        "coder": "architect_coder",    # Loop back through OpenCode for UI fixes
         "push": "push"        # Everything passed
     })
     
     graph.add_edge("push", END)
     
     # Attach memory so the graph can be paused waiting for Slack human approval
-    app = graph.compile(checkpointer=checkpointer, interrupt_before=["await_clarification", "router", "push"])
+    # Note: Removing 'router' from breakpoints since it's deleted. 
+    # Blueprint_presentation happens right before architect_coder, so we pause there if we need blueprint approval.
+    # Actually wait, previously we paused at "router", which triggered AFTER "blueprint_presentation".
+    # We will pause at "architect_coder" to ensure they can approve the blueprint before it codes.
+    app = graph.compile(checkpointer=checkpointer, interrupt_before=["await_clarification", "architect_coder", "push"])
     
     return app
