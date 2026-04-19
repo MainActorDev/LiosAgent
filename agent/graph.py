@@ -432,7 +432,7 @@ def validator_node(state: AgentState):
             except Exception as e:
                 print(f"Failed to post Slack approval: {e}")
                 
-        return {"history": ["Xcode Build Validation PASSED! Awaiting human approval in Slack."]}
+        return {"history": ["Xcode Build Validation PASSED! Awaiting human approval via Slack Action or a GitHub 'Approve' comment."]}
     else:
         errors = state.get("compiler_errors", [])
         errors.append(build_output)
