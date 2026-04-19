@@ -767,12 +767,12 @@ def _analyze_navigation_from_source(workspace_path: str, file_paths: list) -> st
     prompt = f"""You are an expert iOS tester using the Maestro framework.
 The developer has modified the following Swift files. Analyze them to provide navigation hints for a test agent.
 
-CRITICAL INSTRUCTION: Different projects use different UI frameworks (SwiftUI, UIKit, or custom frameworks like Construkt which might use CKScrollView or other custom declarative syntax). Adapt directly to what you see in the code.
+CRITICAL INSTRUCTION: Do not make any assumptions about the UI framework or syntax being used. The project may use a custom, internal declarative framework. Adapt your analysis purely based on the structure and semantics found in the provided code.
 
 Provide a highly concise summary (2-3 sentences) focusing on:
-1. Location: What screen or feature is this? (e.g., Tab, Root, Detail)
-2. Scrolling: Are the modified elements inside a scrollable container (e.g. ScrollView, List, Table, CKScrollView)? Must the agent scroll to reach it?
-3. Targets: Are there any specific accessibilityIdentifiers or labels the agent should tap to reach this view?
+1. Location: What screen or feature is this?
+2. Scrolling: Based purely on the code provided, are the modified elements placed inside a scrolling or list-type container? Must the agent scroll to reach the modified UI?
+3. Targets: Are there any specific accessibilityIdentifiers, labels, or programmatic IDs the agent should target to reach this view?
 
 File contents:
 {file_contents}
