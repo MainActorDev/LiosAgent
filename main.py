@@ -102,9 +102,7 @@ def handle_approve_action(ack, body, logger, say):
             
             # Resume LangGraph from the checkpoint interrupt (None means no new user input)
             print(f"Resuming LangGraph execution for Issue {issue_num}...")
-            # We must use asyncio.run to execute the async nodes (subagents are async now)
-            import asyncio
-            asyncio.run(graph_app.ainvoke(None, config=config))
+            graph_app.invoke(None, config=config)
             print("LangGraph final step complete.")
         except Exception as e:
             print(f"Failed to resume LangGraph: {e}")

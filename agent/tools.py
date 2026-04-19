@@ -172,6 +172,34 @@ def patch_workspace_file(workspace_path: str, file_relative_path: str, start_lin
     except Exception as e:
         return f"Error patching file: {str(e)}"
 
+@tool
+def run_shell_command(workspace_path: str, command: str) -> str:
+    """
+    Execute a shell command inside the isolated workspace directory.
+    Use this for tasks like:
+    - `git log --oneline -20` to see recent commits
+    - `git diff HEAD~5 -- README.md` to see recent changes to a file
+    - `grep -rn 'somePattern' Sources/` to search for patterns
+    - `find . -name '*.swift' -path '*/Core/*'` to discover files
+    - `wc -l README.md` to count lines
+    
+    The command runs with the workspace as its working directory.
+    Output is truncated to 8000 characters to stay within LLM context limits.
+    """
+    try:
+        result = subprocess.run(
+            command, shell=True, cwd=workspace_path,
+            capture_output=True, text=True, timeout=30
+        )
+        output = result.stdout + result.stderr
+        if len(output) > 8000:
+            output = output[:8000] + "\n... [OUTPUT TRUNCATED]"
+        return output if output.strip() else "(command produced no output)"
+    except subprocess.TimeoutExpired:
+        return "Error: Command timed out after 30 seconds."
+    except Exception as e:
+        return f"Error executing command: {str(e)}"
+
 def prepare_project_structure(workspace_path: str):
     if os.path.exists(os.path.join(workspace_path, "project.yml")):
         subprocess.run(["rtk", "xcodegen", "generate"], cwd=workspace_path, check=False)
