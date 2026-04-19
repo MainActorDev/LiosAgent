@@ -521,21 +521,47 @@ def maestro_navigation_generator_node(state: AgentState):
         return {"history": ["Maestro Navigation: Skipped (no device info available)."]}
     
     print(f"🤖 Running hierarchy-aware Maestro navigation...")
+    from agent.tools import get_maestro_bin
+    
     nav_log = navigate_to_target_view(device_udid, workspace_path, bundle_id, instructions, blueprint)
     
-    # Re-capture screenshot after navigation (the old one shows the home screen)
-    import subprocess
+    # After navigation, we have an intelligent maestro_flow.yaml. Let's run it linearly to capture 
+    # the clean video and final screenshot for the UI Validation!
+    maestro_flow = os.path.join(workspace_path, "maestro_flow.yaml")
+    
+    video_path = ""
     screenshot_path = state.get("screenshot_path", "")
-    if screenshot_path:
-        full_path = os.path.join(workspace_path, screenshot_path) if not os.path.isabs(screenshot_path) else screenshot_path
-        subprocess.run(
-            ["xcrun", "simctl", "io", device_udid, "screenshot", full_path],
-            check=False, capture_output=True
-        )
-        subprocess.run(["sips", "-Z", "800", full_path], check=False, capture_output=True)
+    
+    if os.path.exists(maestro_flow):
+        with open(maestro_flow, "r") as f:
+            content = f.read()
+        
+        # Only run it if it's the valid synthesized YAML, not the generic "no navigation needed" comment
+        if content.startswith("appId:"):
+            print("🎥 Executing clean synthesized Maestro navigation for final PR video...")
+            import time
+            maestro_bin = get_maestro_bin()
+            subprocess.run([maestro_bin, "--device", device_udid, "test", maestro_flow], check=False, cwd=workspace_path)
+            
+            # The YAML saves `lios_navigation.mp4` and `lios_final_state.png` cleanly to the working directory
+            if os.path.exists(os.path.join(workspace_path, "lios_navigation.mp4")):
+                video_path = "lios_navigation.mp4"
+            if os.path.exists(os.path.join(workspace_path, "lios_final_state.png")):
+                screenshot_path = "lios_final_state.png"
+            
+            time.sleep(4)  # Let animations and background video encoders complete
+        else:
+            # If no Maestro flow was needed, just re-take a normal screenshot
+            full_path = os.path.join(workspace_path, screenshot_path) if not os.path.isabs(screenshot_path) else screenshot_path
+            subprocess.run(["xcrun", "simctl", "io", device_udid, "screenshot", full_path], check=False, capture_output=True)
+            subprocess.run(["sips", "-Z", "800", full_path], check=False, capture_output=True)
     
     log_summary = "; ".join(nav_log) if nav_log else "No navigation needed."
-    return {"history": [f"Maestro Navigation: {log_summary}"]}
+    return {
+        "video_path": video_path,
+        "screenshot_path": screenshot_path,
+        "history": [f"Maestro Navigation: {log_summary}"]
+    }
 
 def should_retry(state: AgentState) -> str:
     """Conditional Edge logic: decides if we go back to CoderNode or give up."""
@@ -586,20 +612,17 @@ def ui_vision_validator_node(state: AgentState):
         
         return {
             "screenshot_path": "",
-            "video_path": "",
             "device_udid": "",
             "bundle_id": "",
             "history": [f"UI Vision Check: FATAL ERROR. {screenshot_result['error']}"]
         }
     
     filename = os.path.basename(screenshot_result.get("screenshot_path", ""))
-    video_filename = os.path.basename(screenshot_result.get("video_path", "")) if screenshot_result.get("video_path") else ""
     
     # Store device info + initial screenshot in state for the maestro navigation node
     # The maestro node will navigate and re-capture, then vision runs after
     return {
         "screenshot_path": filename,
-        "video_path": video_filename,
         "device_udid": screenshot_result.get("device_udid", ""),
         "bundle_id": screenshot_result.get("bundle_id", ""),
         "history": [f"Simulator booted and initial screenshot captured: {filename}"]
