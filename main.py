@@ -260,9 +260,21 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
                     # Check if the user is approving the blueprint (paused at the 'blueprint_approval_gate' node)
                     # We also check 'architect_coder' for backward compatibility, and 'push' so users can approve deployments via GitHub if their Slack webhook isn't configured
                     valid_gates = ["blueprint_approval_gate", "architect_coder", "push"]
+                    
                     if "approve" in body.lower() and state.next and any(gate in state.next for gate in valid_gates):
                         print(f"🚀 Resuming LangGraph for Issue {issue_num} via GitHub comment approval")
-                        await graph_app.ainvoke(None, config=config)
+                        await graph_app.ainvoke({"history": ["Blueprint/Execution approved by human developer, proceeding..."]}, config=config)
+                    
+                    # Intercept feedback if paused at the blueprint approval gate
+                    elif state.next and "blueprint_approval_gate" in state.next:
+                        old_instructions = state.values.get("instructions", "")
+                        new_instructions = old_instructions + f"\n\n[Blueprint Feedback]:\n{body}"
+                        print(f"🚀 Resuming LangGraph Planner for Issue {issue_num} with architecture feedback")
+                        await graph_app.ainvoke({
+                            "instructions": new_instructions, 
+                            "history": [f"Blueprint feedback received: '{body[:50]}...'. Regenerating architecture plan."]
+                        }, config=config)
+                        
                     # Otherwise, check if they are clarifying a vague issue (paused at 'await_clarification')
                     elif state.next and "await_clarification" in state.next:
                         old_instructions = state.values.get("instructions", "")

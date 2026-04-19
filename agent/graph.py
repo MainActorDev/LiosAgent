@@ -595,8 +595,15 @@ def await_clarification_node(state: AgentState):
     return {"history": ["Awaiting clarification from GitHub thread..."]}
 
 def blueprint_approval_gate(state: AgentState):
-    """Placeholder node to safely pause execution for human Blueprint Review without breaking validation retry loops."""
-    return {"history": ["Blueprint approved by human developer, proceeding to architecture layer..."]}
+    """Placeholder node to safely pause execution for human Blueprint Review. State dict is dynamically patched by main.py upon resume."""
+    return {}
+
+def should_proceed_from_blueprint(state: AgentState) -> str:
+    """Dynamically routes execution depending on whether the user approved the blueprint or issued feedback."""
+    last_history = state.get("history", [""])[-1]
+    if "Blueprint feedback received" in last_history:
+        return "planner"
+    return "architect_coder"
 
 def build_graph(checkpointer=None):
     """Compiles the LangGraph State Machine."""
@@ -675,8 +682,11 @@ def build_graph(checkpointer=None):
     # Send presentation to approval gate
     graph.add_edge("blueprint_presentation", "blueprint_approval_gate")
     
-    # After approval, proceed to coder
-    graph.add_edge("blueprint_approval_gate", "architect_coder")
+    # Dynamically route: either loop back to planner with feedback, or proceed to execution
+    graph.add_conditional_edges("blueprint_approval_gate", should_proceed_from_blueprint, {
+        "planner": "planner",
+        "architect_coder": "architect_coder"
+    })
     
     # After architecture completes, validate the code
     graph.add_edge("architect_coder", "validator")
