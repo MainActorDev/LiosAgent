@@ -499,14 +499,19 @@ If the issue is vague, dummy testing text, or lacks context (e.g. "dummy message
 
 def should_proceed_from_vetting(state: AgentState) -> str:
     if "halted." in state.get("history", [""])[-1]:
-        return "end"
+        return "await_clarification"
     return "initialize"
+
+def await_clarification_node(state: AgentState):
+    """Placeholder node to freeze LangGraph while waiting for developer comments."""
+    return {"history": ["Awaiting clarification from GitHub thread..."]}
 
 def build_graph():
     """Compiles the LangGraph State Machine."""
     graph = StateGraph(AgentState)
     
     graph.add_node("vetting", issue_vetting_node)
+    graph.add_node("await_clarification", await_clarification_node)
     graph.add_node("initialize", initialize_workspace_node)
     graph.add_node("context_aggregator", context_aggregator_node)
     graph.add_node("planner", planner_node)
@@ -524,8 +529,11 @@ def build_graph():
     
     graph.add_conditional_edges("vetting", should_proceed_from_vetting, {
         "initialize": "initialize",
-        "end": END
+        "await_clarification": "await_clarification"
     })
+    
+    # Loop back to vetting once resumed
+    graph.add_edge("await_clarification", "vetting")
     
     graph.add_edge("initialize", "context_aggregator")
     graph.add_edge("context_aggregator", "planner")
@@ -565,6 +573,6 @@ def build_graph():
     # Attach memory so the graph can be paused waiting for Slack human approval
     from langgraph.checkpoint.memory import MemorySaver
     checkpointer = MemorySaver()
-    app = graph.compile(checkpointer=checkpointer, interrupt_before=["router", "push"])
+    app = graph.compile(checkpointer=checkpointer, interrupt_before=["await_clarification", "router", "push"])
     
     return app

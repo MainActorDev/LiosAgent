@@ -149,7 +149,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
         repository = payload.get("repository", {})
         installation = payload.get("installation", {})
         
-        if action == "opened":
+        if action in ["opened", "edited"]:
             issue_num = str(issue.get("number"))
             issue_title = issue.get("title")
             issue_body = issue.get("body", "")
@@ -157,28 +157,37 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
             repo_full_name = repository.get("full_name")
             installation_id = str(installation.get("id", ""))
             
-            # Post a Slack message notifying the team
-            slack_channel = os.environ.get("SLACK_CHANNEL_ID")
-            if slack_channel:
-                try:
-                    slack_app.client.chat_postMessage(
-                        channel=slack_channel,
-                        text=f"New Agent Task Created!",
-                        blocks=[
-                            {
-                                "type": "section",
-                                "text": {"type": "mrkdwn", "text": f"*New GitHub Issue for Agent*\n<{issue['html_url']}|#{issue_num} - {issue_title}>\nTarget Repo: `{repository.get('full_name')}`"}
-                            },
-                        ]
-                    )
-                except Exception as e:
-                    print(f"Error posting to Slack: {e}")
+            if action == "opened":
+                # Post a Slack message notifying the team
+                slack_channel = os.environ.get("SLACK_CHANNEL_ID")
+                if slack_channel:
+                    try:
+                        slack_app.client.chat_postMessage(
+                            channel=slack_channel,
+                            text=f"New Agent Task Created!",
+                            blocks=[
+                                {
+                                    "type": "section",
+                                    "text": {"type": "mrkdwn", "text": f"*New GitHub Issue for Agent*\n<{issue['html_url']}|#{issue_num} - {issue_title}>\nTarget Repo: `{repository.get('full_name')}`"}
+                                },
+                            ]
+                        )
+                    except Exception as e:
+                        print(f"Error posting to Slack: {e}")
                     
             # Trigger LangGraph Workflow Background Task
             def run_agent_workflow():
                 try:
                     from agent.graph import build_graph
                     graph_app = build_graph()
+                    config = {"configurable": {"thread_id": f"issue-{issue_num}"}}
+                    
+                    if action == "edited":
+                        state = graph_app.get_state(config)
+                        if state.next and state.next[0] == "await_clarification":
+                            print(f"🚀 Resuming LangGraph Vetting for Edited Issue {issue_num}")
+                            graph_app.invoke({"instructions": f"Title: {issue_title}\n\nDescription:\n{issue_body}"}, config=config)
+                        return
                     
                     initial_state = {
                         "task_id": issue_num,
@@ -192,7 +201,6 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
                     }
                     
                     print(f"🚀 Triggering LangGraph for Issue {issue_num}")
-                    config = {"configurable": {"thread_id": f"issue-{issue_num}"}}
                     graph_app.invoke(initial_state, config=config)
                 except Exception as e:
                     print(f"❌ Core LangGraph Error: {e}")
@@ -206,15 +214,23 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
         body = comment.get("body", "").strip()
         issue_num = str(issue.get("number"))
         
-        if action in ["created", "edited"] and body.lower() == "approve":
+        if action in ["created", "edited"]:
             def resume_from_comment():
                 try:
                     from agent.graph import build_graph
                     graph_app = build_graph()
                     config = {"configurable": {"thread_id": f"issue-{issue_num}"}}
+                    state = graph_app.get_state(config)
                     
-                    print(f"🚀 Resuming LangGraph for Issue {issue_num} via GitHub comment approval")
-                    graph_app.invoke(None, config=config)
+                    if body.lower() == "approve":
+                        print(f"🚀 Resuming LangGraph for Issue {issue_num} via GitHub comment approval")
+                        graph_app.invoke(None, config=config)
+                    elif state.next and state.next[0] == "await_clarification":
+                        old_instructions = state.values.get("instructions", "")
+                        new_instructions = old_instructions + f"\n\n[Developer Clarification]:\n{body}"
+                        print(f"🚀 Resuming LangGraph Vetting for Issue {issue_num} with new clarification")
+                        graph_app.invoke({"instructions": new_instructions}, config=config)
+                        
                 except Exception as e:
                     print(f"❌ Core LangGraph Resume Error: {e}")
                     
