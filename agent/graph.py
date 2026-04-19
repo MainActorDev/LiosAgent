@@ -342,8 +342,17 @@ Ensure you fulfill every aspect of the blueprint."""
         }
     }
     
+    opencode_config["mcp"] = {}
+    
+    # Dynamically inject XcodeBuildMCP so the LLM can construct native compilation schemas
+    opencode_config["mcp"]["XcodeBuildMCP"] = {
+        "type": "local",
+        "command": ["npx", "-y", "xcodebuildmcp"],
+        "enabled": True
+    }
+    print("🛠️ Architect Coder natively mounting XcodeBuildMCP into OpenCode sandbox...")
+    
     if has_figma_link and os.environ.get("FIGMA_ACCESS_TOKEN"):
-        opencode_config["mcp"] = {}
         opencode_config["mcp"]["FigmaMCP"] = {
             "type": "local",
             "command": ["npx", "-y", "github:glips/figma-context-mcp"],
