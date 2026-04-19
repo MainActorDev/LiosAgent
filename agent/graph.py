@@ -373,13 +373,15 @@ RULES:
 2. Use `read_file` to view file contents.
 3. Use Serena's `replace_content` for surgical Swift code edits. Use `overwrite_prose_file` to completely overwrite markdown files.
 4. Use `execute_shell` to run git log, git diff, grep, or any shell command you need.
-5. Create all test files from the blueprint's files_to_test that relate to UI."""
+5. Create all test files from the blueprint's files_to_test that relate to UI.
+
+CRITICAL URGENCY: You have a strict step limit. Do not over-explore the codebase. Gather essential context quickly, and act immediately. DO NOT waste steps doing excessive reads. When updating prose or documentation, MAKE broad structural changes efficiently."""
         
         if state.get("compiler_errors"):
             prompt += f"\n\n🚨 PREVIOUS ERRORS:\n{state.get('compiler_errors')[-1]}\nFix only UI-related errors."
             
         print(f"👨‍💻 UI Sub-Agent is generating and applying code to {workspace_path}...")
-        result = await agent_executor.ainvoke({"messages": [("user", prompt)]}, config={"recursion_limit": 30})
+        result = await agent_executor.ainvoke({"messages": [("user", prompt)]}, config={"recursion_limit": 100})
         
         for msg in result.get("messages", []):
             print(f"[{msg.type.upper()}] {msg.content}")
@@ -458,13 +460,15 @@ RULES:
 2. Use `read_file` to view file contents.
 3. Use Serena's `replace_content` for surgical Swift code edits. Use `overwrite_prose_file` to completely overwrite markdown files.
 4. Use `execute_shell` to run git log, git diff, grep, or any shell command you need.
-5. Create all test files from the blueprint's files_to_test that relate to networking."""
+5. Create all test files from the blueprint's files_to_test that relate to networking.
+
+CRITICAL URGENCY: You have a strict step limit. Do not over-explore the codebase. Gather essential context quickly, and act immediately. DO NOT waste steps doing excessive reads."""
         
         if state.get("compiler_errors"):
             prompt += f"\n\n🚨 PREVIOUS ERRORS:\n{state.get('compiler_errors')[-1]}\nFix only data/network-related errors."
             
         print(f"👨‍💻 Network Sub-Agent is generating and applying code to {workspace_path}...")
-        result = await agent_executor.ainvoke({"messages": [("user", prompt)]}, config={"recursion_limit": 30})
+        result = await agent_executor.ainvoke({"messages": [("user", prompt)]}, config={"recursion_limit": 100})
         
         for msg in result.get("messages", []):
             print(f"[{msg.type.upper()}] {msg.content}")
@@ -527,13 +531,15 @@ IMPORTANT RULES:
 2. Use `read_file` to view file contents.
 3. Use Serena's `replace_content` for surgical Swift code edits. Use `overwrite_prose_file` to COMPLETELY OVERWRITE files that are mostly prose (like README.md) because line-by-line patching is too fragile for Markdown.
 4. Use `execute_shell` to run git log, git diff, grep, or any shell command you need to understand recent changes.
-5. Always create test files listed in the blueprint's files_to_test."""
+5. Always create test files listed in the blueprint's files_to_test.
+
+CRITICAL URGENCY: You have a strict step limit. Do not over-explore the codebase. Gather essential context quickly, and act immediately. DO NOT waste steps doing excessive reads. When updating prose or documentation, MAKE broad structural changes efficiently."""
         
         if state.get("compiler_errors"):
             prompt += f"\n\n🚨 PREVIOUS BUILD FAILED WITH ERRORS:\n{state.get('compiler_errors')[-1]}\nUse read_file to find the broken lines, then replace_content to fix them."
             
         print(f"👨‍💻 General Coder is generating and applying code to {workspace_path}...")
-        result = await agent_executor.ainvoke({"messages": [("user", prompt)]}, config={"recursion_limit": 30})
+        result = await agent_executor.ainvoke({"messages": [("user", prompt)]}, config={"recursion_limit": 100})
         
         for msg in result.get("messages", []):
             print(f"[{msg.type.upper()}] {msg.content}")
