@@ -340,7 +340,7 @@ Ensure you fulfill every aspect of the blueprint."""
                 "*": "allow"
             }
         },
-        "mcpServers": {
+        "mcp": {
             "serena": {
                 "command": "uvx",
                 "args": [
@@ -355,7 +355,7 @@ Ensure you fulfill every aspect of the blueprint."""
     }
     
     if has_figma_link and os.environ.get("FIGMA_ACCESS_TOKEN"):
-        opencode_config["mcpServers"]["FigmaMCP"] = {
+        opencode_config["mcp"]["FigmaMCP"] = {
             "command": "npx",
             "args": ["-y", "github:glips/figma-context-mcp"],
             "env": {
