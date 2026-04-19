@@ -435,29 +435,42 @@ def post_approval_to_slack(task_id: str, success: bool, feedback: str = ""):
         client = WebClient(token=bot_token)
         try:
             status_emoji = "✅" if success else "❌"
-            status_text = "All compilation and UI validations have passed! Would you like me to push this code?" if success else f"UI Validation FAILED:\n_{feedback}_\n\nWould you like to manually approve and push this code anyway?"
             
+            is_fatal = "FATAL" in feedback.upper() or "BUILD FAILED" in feedback.upper() or "ERROR:" in feedback.upper()
+            
+            if success:
+                status_text = "All compilation and UI validations have passed! Would you like me to push this code?"
+            elif is_fatal:
+                status_text = f"Critical Simulator Failure:\n_{feedback}_\n\nThe workspace was rolled back to prevent pushing broken code."
+            else:
+                status_text = f"UI Validation FAILED:\n_{feedback}_\n\nWould you like to manually approve and push this code anyway?"
+            
+            blocks = [
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": f"{status_emoji} *AI Validation for Task #{task_id}*\n {status_text}"}
+                }
+            ]
+            
+            # Only offer the manual override button for subjective visual mismatches, NOT hard compile crashes
+            if success or not is_fatal:
+                blocks.append({
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Approve & Push"},
+                            "style": "primary",
+                            "action_id": "approve_pr",
+                            "value": str(task_id)
+                        }
+                    ]
+                })
+                
             client.chat_postMessage(
                 channel=slack_channel,
                 text=f"Validation Result for Task {task_id}",
-                blocks=[
-                    {
-                        "type": "section",
-                        "text": {"type": "mrkdwn", "text": f"{status_emoji} *AI Validation for Task #{task_id}*\n {status_text}"}
-                    },
-                    {
-                        "type": "actions",
-                        "elements": [
-                            {
-                                "type": "button",
-                                "text": {"type": "plain_text", "text": "Approve & Push"},
-                                "style": "primary",
-                                "action_id": "approve_pr",
-                                "value": str(task_id)
-                            }
-                        ]
-                    }
-                ]
+                blocks=blocks
             )
         except Exception as e:
             print(f"Failed to post Slack approval: {e}")
@@ -577,7 +590,7 @@ def should_retry(state: AgentState) -> str:
             print("🚨 Max retries hit! Executing RTK State Rollback...")
             subprocess.run(["rtk", "git", "clean", "-fd"], cwd=workspace_path, check=False)
             subprocess.run(["rtk", "git", "checkout", "--", "."], cwd=workspace_path, check=False)
-        return "ui_check"
+        return "push"
         
     return "coder" # Feedback loop: go back to coding to fix the compiler error
 
@@ -848,7 +861,8 @@ def build_graph(checkpointer=None):
     # Conditional logic out of the validator (loops back to architect_coder on failure)
     graph.add_conditional_edges("validator", should_retry, {
         "coder": "architect_coder",           # Loop back through OpenCode for targeted fixes
-        "ui_check": "ui_vision_check"          # Build passed → boot sim & capture initial screenshot
+        "ui_check": "ui_vision_check",         # Build passed → boot sim & capture initial screenshot
+        "push": "push"                        # Build perfectly failed multiple times → skip to halt
     })
     
     # Pipeline: capture → navigate → validate → push
