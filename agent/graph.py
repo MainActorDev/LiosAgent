@@ -327,7 +327,7 @@ Ensure you fulfill every aspect of the blueprint."""
     # We use npx --yes to ensure the CLI installs silently without blocking if not cached globally
     # Streaming output naturally to the terminal without capturing prevents the server from appearing frozen
     process = subprocess.run(
-        ["npx", "--yes", "opencode-ai", "--query", prompt],
+        ["npx", "--yes", "opencode-ai", "run", prompt],
         cwd=workspace_path
     )
         
