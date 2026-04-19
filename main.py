@@ -211,6 +211,11 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
         action = payload.get("action")
         comment = payload.get("comment", {})
         issue = payload.get("issue", {})
+        
+        # Prevent the agent from reacting to its own comments
+        if comment.get("user", {}).get("type") == "Bot" or "bot" in comment.get("user", {}).get("login", "").lower():
+            return {"status": "ignored"}
+            
         body = comment.get("body", "").strip()
         issue_num = str(issue.get("number"))
         

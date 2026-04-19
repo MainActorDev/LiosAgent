@@ -1,5 +1,11 @@
 import os
+from langchain_core.messages import HumanMessage, SystemMessage
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, END
+
+# GLOBALLY persist LangGraph thread memory across the FastAPI lifecycle
+GLOBAL_CHECKPOINTER = MemorySaver()
+
 from agent.state import AgentState
 from agent.tools import clone_isolated_workspace, execute_xcodebuild, read_workspace_file, write_workspace_file, read_workspace_file_lines, patch_workspace_file, post_github_comment, capture_simulator_screenshot, validate_ui_with_vision, fetch_external_link
 from agent.llm_factory import get_llm
@@ -571,8 +577,6 @@ def build_graph():
     graph.add_edge("push", END)
     
     # Attach memory so the graph can be paused waiting for Slack human approval
-    from langgraph.checkpoint.memory import MemorySaver
-    checkpointer = MemorySaver()
-    app = graph.compile(checkpointer=checkpointer, interrupt_before=["await_clarification", "router", "push"])
+    app = graph.compile(checkpointer=GLOBAL_CHECKPOINTER, interrupt_before=["await_clarification", "router", "push"])
     
     return app
