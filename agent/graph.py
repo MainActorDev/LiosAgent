@@ -599,7 +599,28 @@ def build_graph():
     graph.add_node("general_coder", general_coder_node)
     graph.add_node("validator", validator_node)
     graph.add_node("ui_vision_check", ui_vision_validator_node)
-    graph.add_node("push", lambda state: {"history": ["Code pushed and PR opened."]}) 
+    
+    def push_node(state: AgentState):
+        workspace_path = state.get("workspace_path")
+        branch_name = state.get("current_branch")
+        task_id = state.get("task_id")
+        repo_full_name = state.get("repo_full_name")
+        installation_id = state.get("installation_id")
+        
+        from agent.tools import commit_and_push_branch, post_github_comment
+        
+        print(f"🚀 Pushing successfully validated code for #{task_id}...")
+        push_msg = commit_and_push_branch(workspace_path, branch_name, f"Agent Implementation for #{task_id}")
+        
+        # Notify developer
+        comment = f"✅ **Coding & Validation Complete!**\n\nThe background agents compiled the code successfully and the UI tests passed.\nAll logic and design tokens have been safely pushed to the remote branch `{branch_name}`.\n\nYou can now open a Pull Request!"
+        
+        if repo_full_name and installation_id:
+            post_github_comment(repo_full_name, task_id, installation_id, comment)
+            
+        return {"history": ["Code pushed to remote repository."]}
+
+    graph.add_node("push", push_node) 
     
     # Wiring the flow
     graph.set_entry_point("vetting")
