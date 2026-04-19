@@ -394,6 +394,7 @@ def validator_node(state: AgentState):
     needs_build = any(f.endswith((".swift", ".m", ".h", ".pbxproj", ".xcconfig", ".storyboard", ".xib")) for f in all_files)
     
     if needs_build:
+        print(f"🔧 Compiling Workspace {task_id} via xcodebuild (This may take several minutes)...")
         build_output = execute_xcodebuild(workspace_path)
     else:
         build_output = "Build SUCCESS\nValidation bypassed: Non-coding task detected."
@@ -574,6 +575,10 @@ def await_clarification_node(state: AgentState):
     """Placeholder node to freeze LangGraph while waiting for developer comments."""
     return {"history": ["Awaiting clarification from GitHub thread..."]}
 
+def blueprint_approval_gate(state: AgentState):
+    """Placeholder node to safely pause execution for human Blueprint Review without breaking validation retry loops."""
+    return {"history": ["Blueprint approved by human developer, proceeding to architecture layer..."]}
+
 def build_graph(checkpointer=None):
     """Compiles the LangGraph State Machine."""
     graph = StateGraph(AgentState)
@@ -584,6 +589,7 @@ def build_graph(checkpointer=None):
     graph.add_node("context_aggregator", context_aggregator_node)
     graph.add_node("planner", planner_node)
     graph.add_node("blueprint_presentation", blueprint_presentation_node)
+    graph.add_node("blueprint_approval_gate", blueprint_approval_gate)
     graph.add_node("architect_coder", architect_coder_node)
     graph.add_node("validator", validator_node)
     graph.add_node("ui_vision_check", ui_vision_validator_node)
@@ -634,8 +640,11 @@ def build_graph(checkpointer=None):
     graph.add_edge("context_aggregator", "planner")
     graph.add_edge("planner", "blueprint_presentation")
     
-    # Send directly to the unified architect_coder from presentation
-    graph.add_edge("blueprint_presentation", "architect_coder")
+    # Send presentation to approval gate
+    graph.add_edge("blueprint_presentation", "blueprint_approval_gate")
+    
+    # After approval, proceed to coder
+    graph.add_edge("blueprint_approval_gate", "architect_coder")
     
     # After architecture completes, validate the code
     graph.add_edge("architect_coder", "validator")
@@ -654,11 +663,8 @@ def build_graph(checkpointer=None):
     
     graph.add_edge("push", END)
     
-    # Attach memory so the graph can be paused waiting for Slack human approval
-    # Note: Removing 'router' from breakpoints since it's deleted. 
-    # Blueprint_presentation happens right before architect_coder, so we pause there if we need blueprint approval.
-    # Actually wait, previously we paused at "router", which triggered AFTER "blueprint_presentation".
-    # We will pause at "architect_coder" to ensure they can approve the blueprint before it codes.
-    app = graph.compile(checkpointer=checkpointer, interrupt_before=["await_clarification", "architect_coder", "push"])
+    # Attach memory so the graph can be paused waiting for human approval
+    # We now pause at blueprint_approval_gate instead of architect_coder to prevent deadlock during retries
+    app = graph.compile(checkpointer=checkpointer, interrupt_before=["await_clarification", "blueprint_approval_gate", "push"])
     
     return app

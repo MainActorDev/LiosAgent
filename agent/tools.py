@@ -213,20 +213,21 @@ def prepare_project_structure(workspace_path: str):
         subprocess.run(["rtk", "swift", "package", "resolve"], cwd=workspace_path, check=False)
 
 def execute_xcodebuild(workspace_path: str) -> str:
-    """
-    Dynamically generates the project if needed, then attempts to compile it,
-    piping output through rtk to save LLM tokens.
-    """
-    if not shutil.which("rtk"):
-        return "FATAL ERROR: The `rtk` (Rust Token Kit) CLI proxy is missing from the system PATH. Execution halted to prevent API token exhaustion."
-
     prepare_project_structure(workspace_path)
     
+    use_rtk = shutil.which("rtk") is not None
+    
     # Fallback to pure xcodebuild if no custom fast-build script exists
-    build_cmd = ["rtk", "xcodebuild", "build", "-scheme", "App", "-destination", "generic/platform=iOS Simulator"]
+    if use_rtk:
+        build_cmd = ["rtk", "xcodebuild", "build", "-scheme", "App", "-destination", "generic/platform=iOS Simulator"]
+    else:
+        build_cmd = ["xcodebuild", "build", "-scheme", "App", "-destination", "generic/platform=iOS Simulator"]
     
     if os.path.exists(os.path.join(workspace_path, "scripts", "xcodebuild_cached.sh")):
-        build_cmd = ["rtk", "bash", "./scripts/xcodebuild_cached.sh"]
+        if use_rtk:
+            build_cmd = ["rtk", "bash", "./scripts/xcodebuild_cached.sh"]
+        else:
+            build_cmd = ["bash", "./scripts/xcodebuild_cached.sh"]
         
     try:
         # We use cwd=workspace_path so xcodebuild runs in the correct directory context
@@ -237,11 +238,10 @@ def execute_xcodebuild(workspace_path: str) -> str:
             text=True
         )
         
-        # RTK heavily compresses logs, so we can return them safely in full
         if result.returncode == 0:
-            return f"Build SUCCESS!\n\nRTK Distilled Output:\n{result.stdout}"
+            return f"Build SUCCESS!\n\nOutput:\n{result.stdout[-2000:] if not use_rtk else result.stdout}"
         else:
-            return f"Build FAILED!\n\nRTK Distilled Error Log:\n{result.stderr}\n\nStdout:\n{result.stdout}"
+            return f"Build FAILED!\n\nError Log:\n{result.stderr[-2000:] if not use_rtk else result.stderr}\n\nStdout:\n{result.stdout[-2000:] if not use_rtk else result.stdout}"
             
     except Exception as e:
         return f"Failed to execute build script: {str(e)}"
