@@ -403,15 +403,34 @@ def get_maestro_hierarchy(device_udid: str) -> str:
         print(f"⚠️ Maestro hierarchy dump failed: {e}")
         return ""
 
+def _maestro_selector_for_label(label: str) -> str:
+    """
+    Determine whether to use Maestro's `id:` or `text:` selector.
+    
+    Per Maestro docs:
+    - `id:` maps to iOS accessibilityIdentifier (gold standard, most reliable)
+    - `text:` maps to iOS accessibilityLabel / visible text
+    
+    We use `id:` when the label looks like a programmatic identifier 
+    (snake_case, kebab-case, no spaces), and `text:` for human-readable labels.
+    """
+    import re
+    # If it looks like a programmatic ID (contains underscores/hyphens, no spaces)
+    if re.match(r'^[a-zA-Z0-9_.-]+$', label) and ('_' in label or '-' in label or '.' in label):
+        return f'id: "{label}"'
+    return f'text: "{label}"'
+
 def run_maestro_single_tap(device_udid: str, workspace_path: str, bundle_id: str, label: str) -> bool:
     """
     Executes a robust Maestro tap: uses retryTapIfNoChange so early taps on 
     not-yet-ready UI elements are automatically retried, and waits for settle.
+    Automatically uses `id:` selector for programmatic identifiers and `text:` for labels.
     """
+    selector = _maestro_selector_for_label(label)
     flow_content = f"""appId: {bundle_id}
 ---
 - tapOn:
-    text: "{label}"
+    {selector}
     retryTapIfNoChange: true
     waitToSettleTimeoutMs: 3000
 - waitForAnimationToEnd
@@ -493,8 +512,9 @@ def synthesize_replayable_flow(workspace_path: str, bundle_id: str, action_histo
     for action in action_history:
         if action.startswith("TAP:"):
             label = action.replace("TAP:", "").strip().strip('"').strip("'")
+            selector = _maestro_selector_for_label(label)
             lines.append(f'- tapOn:')
-            lines.append(f'    text: "{label}"')
+            lines.append(f'    {selector}')
             lines.append(f'    retryTapIfNoChange: true')
             lines.append(f'    waitToSettleTimeoutMs: 3000')
             lines.append(f'- waitForAnimationToEnd')
