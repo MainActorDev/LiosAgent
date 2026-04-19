@@ -435,7 +435,7 @@ def post_approval_to_slack(task_id: str, success: bool, feedback: str = ""):
         client = WebClient(token=bot_token)
         try:
             status_emoji = "✅" if success else "❌"
-            status_text = "All compilation and UI validations have passed! Would you like me to push this code?" if success else f"UI Validation FAILED:\n_{feedback}_\n\nThe AI is currently attempting to fix the code autonomously. If you want to unilaterally approve it anyway, click to Force Push."
+            status_text = "All compilation and UI validations have passed! Would you like me to push this code?" if success else f"UI Validation FAILED:\n_{feedback}_\n\nWould you like to manually approve and push this code anyway?"
             
             client.chat_postMessage(
                 channel=slack_channel,
@@ -555,8 +555,8 @@ def ui_vision_validator_node(state: AgentState):
         post_approval_to_slack(state.get("task_id", "Unknown"), success=True)
         return {"screenshot_path": filename, "history": [f"UI Vision Check: PASSED. {vision_result['feedback']}"]}
     else:
-        print(f"❌ UI Vision FAILED: {vision_result['feedback']} (Looping back to Coder!)")
-        # Feed visual feedback back to the coder as compiler errors for the retry loop
+        print(f"❌ UI Vision FAILED: {vision_result['feedback']}")
+        # Post the failure to slack but DO NOT loop back to the coder node. Let the human decide!
         errors = state.get("compiler_errors", [])
         errors.append(f"UI VISION FAILURE: {vision_result['feedback']}")
         retries = state.get("retries_count", 0) + 1
@@ -571,10 +571,7 @@ def ui_vision_validator_node(state: AgentState):
         }
 
 def should_proceed_from_ui_check(state: AgentState) -> str:
-    """After UI vision check, decide whether to push or loop back to coder."""
-    last_history = state.get("history", [""])[-1]
-    if last_history.startswith("UI Vision Check: FAILED") and state.get("retries_count", 0) < 3:
-        return "coder"
+    """After UI vision check, unconditionally proceed to the push gate so the human can decide."""
     return "push"
 
 def issue_vetting_node(state: AgentState):
