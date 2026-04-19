@@ -176,7 +176,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
                         print(f"Error posting to Slack: {e}")
                     
             # Trigger LangGraph Workflow Background Task
-            def run_agent_workflow():
+            async def run_agent_workflow():
                 try:
                     from agent.graph import build_graph
                     graph_app = build_graph()
@@ -186,7 +186,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
                         state = graph_app.get_state(config)
                         if state.next and state.next[0] == "await_clarification":
                             print(f"🚀 Resuming LangGraph Vetting for Edited Issue {issue_num}")
-                            graph_app.invoke({"instructions": f"Title: {issue_title}\n\nDescription:\n{issue_body}"}, config=config)
+                            await graph_app.ainvoke({"instructions": f"Title: {issue_title}\n\nDescription:\n{issue_body}"}, config=config)
                         return
                     
                     initial_state = {
@@ -201,7 +201,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
                     }
                     
                     print(f"🚀 Triggering LangGraph for Issue {issue_num}")
-                    graph_app.invoke(initial_state, config=config)
+                    await graph_app.ainvoke(initial_state, config=config)
                 except Exception as e:
                     print(f"❌ Core LangGraph Error: {e}")
                     
@@ -220,7 +220,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
         issue_num = str(issue.get("number"))
         
         if action in ["created", "edited"]:
-            def resume_from_comment():
+            async def resume_from_comment():
                 try:
                     from agent.graph import build_graph
                     graph_app = build_graph()
@@ -229,12 +229,12 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
                     
                     if body.lower() == "approve":
                         print(f"🚀 Resuming LangGraph for Issue {issue_num} via GitHub comment approval")
-                        graph_app.invoke(None, config=config)
+                        await graph_app.ainvoke(None, config=config)
                     elif state.next and state.next[0] == "await_clarification":
                         old_instructions = state.values.get("instructions", "")
                         new_instructions = old_instructions + f"\n\n[Developer Clarification]:\n{body}"
                         print(f"🚀 Resuming LangGraph Vetting for Issue {issue_num} with new clarification")
-                        graph_app.invoke({"instructions": new_instructions}, config=config)
+                        await graph_app.ainvoke({"instructions": new_instructions}, config=config)
                         
                 except Exception as e:
                     print(f"❌ Core LangGraph Resume Error: {e}")
@@ -260,7 +260,7 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
             repo_full_name = repository.get("full_name")
             installation_id = str(installation.get("id", ""))
             
-            def run_pr_review_fix():
+            async def run_pr_review_fix():
                 try:
                     from agent.graph import build_graph
                     from agent.tools import clone_isolated_workspace
@@ -300,7 +300,7 @@ Fix the code in the file mentioned above based on the reviewer's feedback."""
                     
                     print(f"🔄 PR Review Loop triggered for PR #{pr_number} on {file_path}")
                     config = {"configurable": {"thread_id": f"pr-review-{pr_number}"}}
-                    graph_app.invoke(initial_state, config=config)
+                    await graph_app.ainvoke(initial_state, config=config)
                 except Exception as e:
                     print(f"❌ PR Review Loop Error: {e}")
                     
