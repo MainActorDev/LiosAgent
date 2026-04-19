@@ -132,14 +132,9 @@ Return a structured markdown report of your findings."""
     finally:
         await manager.cleanup()
         
-    # Read Agent Skills and Repo Rules
+    # Compile Index of Agent Skills
     agent_skills = ""
     if workspace_path:
-        config_path = os.path.join(workspace_path, ".lios-config.yml")
-        if os.path.exists(config_path):
-            with open(config_path, "r") as f:
-                agent_skills += f"--- .lios-config.yml ---\n{f.read()}\n\n"
-                
         import glob
         
         search_patterns = [
@@ -154,8 +149,8 @@ Return a structured markdown report of your findings."""
             for skill_file in glob.glob(pattern, recursive=True):
                 if skill_file not in found_files:
                     found_files.add(skill_file)
-                    with open(skill_file, "r") as f:
-                        agent_skills += f"--- {os.path.basename(skill_file)} ---\n{f.read()}\n\n"
+                    rel_path = os.path.relpath(skill_file, workspace_path)
+                    agent_skills += f"- {rel_path}\n"
                 
     if not agent_skills.strip():
         agent_skills = "No specific rules found. Follow standard iOS best practices."
@@ -310,10 +305,12 @@ Blueprint:
 {blueprint}
 
 TEAM RULES & AGENT SKILLS:
+The repository maintains documentation and specific architectural guidelines at the following file paths:
 {agent_skills}
 
 IMPORTANT RULES:
-Solve the task completely, adhering to the design patterns and rules defined above. 
+Before generating code, use your native file-reading tools to investigate any skill files that seem relevant to your current architectural task. Treat their isolated contents as absolute directives.
+Solve the task completely, adhering to the design patterns and rules defined above.
 Ensure you fulfill every aspect of the blueprint."""
     
     instructions_lower = state.get('instructions', '').lower()
