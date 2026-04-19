@@ -267,10 +267,21 @@ def capture_simulator_screenshot(workspace_path: str, scheme: str = "App") -> st
         # 2. Boot if not already booted
         subprocess.run(["xcrun", "simctl", "boot", target_udid], check=False, capture_output=True)
         
-        # 3. Find the correct directory (e.g. if root is a framework but there's a Demo app inside)
+        # 3. Find the correct directory dynamically by looking for .xcodeproj or .xcworkspace
+        import glob
         build_dir = workspace_path
-        if os.path.exists(os.path.join(workspace_path, "Demo")):
-            build_dir = os.path.join(workspace_path, "Demo")
+        
+        candidates = []
+        candidates.extend(glob.glob(os.path.join(workspace_path, "*.xcworkspace")))
+        candidates.extend(glob.glob(os.path.join(workspace_path, "*/*.xcworkspace")))
+        candidates.extend(glob.glob(os.path.join(workspace_path, "*.xcodeproj")))
+        candidates.extend(glob.glob(os.path.join(workspace_path, "*/*.xcodeproj")))
+        
+        if candidates:
+            # Prefer projects that look like apps (Demo, Example, App) for visual Simulator checks over pure frameworks
+            app_projs = [p for p in candidates if any(x in p for x in ["Demo", "Example", "App"])]
+            chosen_proj = app_projs[0] if app_projs else candidates[0]
+            build_dir = os.path.dirname(chosen_proj)
             
         # Determine the correct scheme dynamically
         try:
