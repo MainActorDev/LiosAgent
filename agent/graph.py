@@ -696,7 +696,7 @@ def build_graph(checkpointer=None):
             rendered_shot = state.get("screenshot_path")
             if rendered_shot:
                 comment += "\n### 📱 Simulator UX Snapshot\n"
-                comment += f"![Simulator Capture](https://raw.githubusercontent.com/{repo_full_name}/{branch_name}/{rendered_shot})\n"
+                comment += f'<img src="https://raw.githubusercontent.com/{repo_full_name}/{branch_name}/{rendered_shot}" width="300" alt="Simulator Capture" />\n'
                 
             comment += f"\n<details><summary><b>Git Push Receipt</b></summary>\n\n```text\n{push_msg}\n```\n</details>\n\n### 🚀 [Click here to quickly open a Pull Request!](https://github.com/{repo_full_name}/compare/{branch_name}?expand=1)"
         
