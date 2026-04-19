@@ -48,7 +48,6 @@ def initialize_workspace_node(state: AgentState):
 
 async def context_aggregator_node(state: AgentState):
     from agent.mcp_clients import MCPManager
-    from langgraph.prebuilt import create_react_agent
     
     llm = get_llm(role="planning")
     workspace_path = state.get("workspace_path")
@@ -60,37 +59,77 @@ async def context_aggregator_node(state: AgentState):
     if not tools:
         return {"mcp_context": "No external MCP context available.", "history": ["Context Aggregation Node skipped (No tools found)."]}
         
+    context_parts = []
+    
     try:
-        # Include our custom web fetching tool for external links
-        tools.append(fetch_external_link)
+        # --- Phase 1: Serena Onboarding (deterministic, no LLM needed) ---
+        # Find Serena's onboarding tools by name
+        tool_map = {t.name: t for t in tools}
         
-        # Create a tiny internal autonomous loop so the LLM can query Serena/XcodeBuild/Web tools fully
-        agent_executor = create_react_agent(llm, tools=tools)
-        prompt = f"""You are a Principal iOS Codebase Investigator. Your job is to explore the codebase and external references to gather architecturally significant context for this issue:
+        # Check if onboarding was already performed for this project
+        if "check_onboarding_performed" in tool_map:
+            check_result = await tool_map["check_onboarding_performed"].ainvoke({})
+            print(f"🔍 Onboarding check: {str(check_result)[:200]}")
+            
+            # Run onboarding if not yet performed
+            if "onboarding" in tool_map and "not" in str(check_result).lower():
+                print("📋 Running Serena onboarding for first-time project activation...")
+                onboarding_result = await tool_map["onboarding"].ainvoke({})
+                context_parts.append(f"## Serena Onboarding Report\n{onboarding_result}")
+                print(f"✅ Onboarding complete ({len(str(onboarding_result))} chars)")
+        
+        # Get initial instructions / project context
+        if "initial_instructions" in tool_map:
+            init_result = await tool_map["initial_instructions"].ainvoke({})
+            context_parts.append(f"## Project Context\n{init_result}")
+            print(f"✅ Initial instructions loaded ({len(str(init_result))} chars)")
+        
+        # Get symbols overview for architectural understanding
+        if "get_symbols_overview" in tool_map:
+            try:
+                symbols_result = await tool_map["get_symbols_overview"].ainvoke({})
+                context_parts.append(f"## Code Structure Overview\n{str(symbols_result)[:4000]}")
+                print(f"✅ Symbols overview loaded")
+            except Exception as e:
+                print(f"⚠️ Symbols overview failed: {e}")
+        
+        # --- Phase 2: LLM-driven external research (only if needed) ---
+        # Only spin up the LLM loop if the issue references external systems
+        instructions_lower = instructions.lower()
+        needs_external = any(kw in instructions_lower for kw in [
+            "figma.com", "figma", "atlassian.net", "jira", "http://", "https://"
+        ])
+        
+        if needs_external:
+            from langgraph.prebuilt import create_react_agent
+            
+            # Only include tools relevant for external research
+            external_tools = [t for t in tools if t.name in {
+                "query_project", "list_queryable_projects", "fetch_external_link"
+            }]
+            external_tools.append(fetch_external_link)
+            
+            if external_tools:
+                agent_executor = create_react_agent(llm, tools=external_tools)
+                prompt = f"""The following issue references external systems. Use your tools to fetch relevant context:
 {instructions}
 
-Investigate the following 7 categories using your tools and produce a structured Markdown report:
-
-1. **Project Structure**: Check for project.yml (XcodeGen), Tuist, or Package.swift. Identify module layout.
-2. **Prior Art Reference Template**: Identify the single most structurally similar EXISTING feature in the codebase. Use the `list_directory` tool to map its entire file tree. Output this file tree exactly, and explicitly state its architectural components. This will be used as a mandatory mapping template.
-3. **Design System**: Search for design tokens (Construkt, Theme, ColorAsset, etc.).
-4. **Architecture**: Look for patterns like Coordinator, MVVM, Repository, Inject.
-5. **Testing Conventions**: Check the Tests/ directory for XCTest vs Quick, and naming styles.
-6. **Build & Dependencies**: Query deployment targets, schemes, and Swift versions.
-7. **External Knowledge (Serena Index & Web Links)**: If the issue explicitly mentions another codebase by name, use `query_projects` to search Serena's index. If the issue contains HTTP links to external repos, gists, or docs, use `fetch_external_link` to read them.
-8. **Design Specs & Business Logic (Figma/Jira)**: If the issue contains a Figma URL, use the Figma tool to extract color tokens, layout hierarchy, and spacing constraints for the feature. If the issue contains a Jira ticket url/ID, use the Jira tool to fetch all linked Acceptance Criteria and Edge Cases.
-
-Return your findings as a structured Markdown report with headers for each category.
-"""
+If the issue contains HTTP links, use fetch_external_link to read them.
+If the issue mentions a Figma URL, extract design tokens. 
+If the issue mentions Jira, fetch acceptance criteria.
+Return a structured markdown report of your findings."""
+                
+                print("🌐 Fetching external references (Figma/Jira/Web)...")
+                result = await agent_executor.ainvoke(
+                    {"messages": [("user", prompt)]},
+                    config={"recursion_limit": 10}
+                )
+                external_context = result["messages"][-1].content
+                context_parts.append(f"## External References\n{external_context}")
         
-        print("🕵️  Principal Architect is executing sub-agent loops to query tool integrations...")
-        result = await agent_executor.ainvoke(
-            {"messages": [("user", prompt)]},
-            config={"recursion_limit": 15}
-        )
-        context_data = result["messages"][-1].content
     except Exception as e:
-        context_data = f"Failed to execute context gathering: {e}"
+        context_parts.append(f"Context gathering error: {e}")
+        print(f"⚠️ Context aggregation error: {e}")
     finally:
         await manager.cleanup()
         
@@ -121,11 +160,12 @@ Return your findings as a structured Markdown report with headers for each categ
                 
     if not agent_skills.strip():
         agent_skills = "No specific rules found. Follow standard iOS best practices."
-        
+    context_data = "\n\n".join(context_parts) if context_parts else "No context gathered."
+    
     return {
         "mcp_context": context_data,
         "agent_skills": agent_skills,
-        "history": ["Context Aggregator Node executed. External tools queried."]
+        "history": ["Context Aggregator Node executed. Serena onboarding + external tools queried."]
     }
 
 def planner_node(state: AgentState):
