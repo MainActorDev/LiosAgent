@@ -21,3 +21,4 @@ class AgentState(TypedDict):
     mcp_context: str            # External knowledge pulled from Context Aggregator
     agent_skills: str           # Parsed .lios-config.yml and .agent/skills/*.md files
     active_subagents: List[str] # Which sub-agents the Router has dispatched (e.g. ["ui", "network"])
+    opencode_session_id: str    # Unique session token to cleanly resume PR review comments

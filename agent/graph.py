@@ -323,15 +323,66 @@ Ensure you fulfill every aspect of the blueprint."""
     print(f"👨‍💻 Architect Coder is farming execution to OpenCode in {workspace_path}...")
     
     import subprocess
+    import sys
+    import json
+    import re
     
-    # We use npx --yes to ensure the CLI installs silently without blocking if not cached globally
-    # Streaming output naturally to the terminal without capturing prevents the server from appearing frozen
-    process = subprocess.run(
-        ["npx", "--yes", "opencode-ai", "run", prompt],
-        cwd=workspace_path
-    )
+    # 1. Enforce strict configuration by writing a local opencode.json
+    opencode_config = {
+        "permission": {
+            "bash": {
+                "rm *": "deny",     # Strictly block deletions as requested
+                "*": "ask"
+            },
+            "edit": {
+                "*": "allow"
+            }
+        }
+    }
+    config_path = os.path.join(workspace_path, "opencode.json")
+    with open(config_path, "w") as f:
+        json.dump(opencode_config, f, indent=2)
         
-    return {"history": ["OpenCode execution complete."]}
+    cmd = ["npx", "--yes", "opencode-ai", "run", prompt, "--dangerously-skip-permissions"]
+    
+    # 2. Resume session if recovering from PR context
+    session_id = state.get("opencode_session_id")
+    if session_id:
+        cmd.extend(["--continue", "--session", session_id])
+        print(f"🔄 Resuming OpenCode Session {session_id} for PR feedback loop...")
+        
+    # 3. Stream real-time output and harvest Session ID
+    print(f"👨‍💻 Architect Coder is farming execution to OpenCode in {workspace_path} (Auto-Approve Enabled)...")
+    process = subprocess.Popen(
+        cmd,
+        cwd=workspace_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,  # Merge stderr into stdout
+        text=True,
+        bufsize=1
+    )
+    
+    captured_output = []
+    
+    for line in iter(process.stdout.readline, ''):
+        # Print natively bypassing python typical buffering
+        sys.stdout.write(line)
+        sys.stdout.flush()
+        captured_output.append(line)
+        
+    process.wait()
+    
+    # 4. Extract Session ID if available in TUI raw output
+    full_output = "".join(captured_output)
+    session_match = re.search(r"Session\s*ID\s*[:=]\s*([a-zA-Z0-9_-]+)", full_output, re.IGNORECASE)
+    
+    history_msg = "OpenCode execution complete."
+    extracted_session = session_id
+    if session_match:
+        extracted_session = session_match.group(1)
+        history_msg += f" (Session ID cached: {extracted_session})"
+        
+    return {"history": [history_msg], "opencode_session_id": extracted_session}
 
 def validator_node(state: AgentState):
     workspace_path = state.get("workspace_path")
