@@ -420,6 +420,29 @@ def run_maestro_single_tap(device_udid: str, workspace_path: str, bundle_id: str
     )
     return result.returncode == 0
 
+def run_maestro_scroll(device_udid: str, workspace_path: str, bundle_id: str, direction: str = "DOWN") -> bool:
+    """
+    Executes a Maestro scroll action. Direction can be DOWN, UP, LEFT, RIGHT.
+    """
+    flow_content = f"appId: {bundle_id}\n---\n- scroll\n"
+    if direction.upper() != "DOWN":
+        # Maestro scroll defaults to DOWN; for UP we use swipe
+        swipe_map = {"UP": "- swipe:\n    direction: UP\n    duration: 400",
+                     "LEFT": "- swipe:\n    direction: LEFT\n    duration: 400",
+                     "RIGHT": "- swipe:\n    direction: RIGHT\n    duration: 400"}
+        flow_content = f"appId: {bundle_id}\n---\n{swipe_map.get(direction.upper(), '- scroll')}\n"
+    
+    flow_path = os.path.join(workspace_path, "maestro_step.yaml")
+    with open(flow_path, "w") as f:
+        f.write(flow_content)
+    
+    maestro_bin = get_maestro_bin()
+    result = subprocess.run(
+        [maestro_bin, "--device", device_udid, "test", flow_path],
+        check=False, capture_output=True, text=True
+    )
+    return result.returncode == 0
+
 def navigate_to_target_view(device_udid: str, workspace_path: str, bundle_id: str, instructions: str, blueprint: dict) -> list:
     """
     Two-phase intelligent navigation:
@@ -489,14 +512,20 @@ NAVIGATION HINTS FROM SOURCE CODE: {nav_hints}
 LABELED ELEMENTS ON SCREEN:
 {labeled_elements}
 
-Look at this screenshot of the current screen. Your job:
-1. If the screen shown is ALREADY the target screen (where the code changes would be visible), respond: DONE
-2. If you need to tap something to navigate deeper, respond: TAP: <exact text visible on screen or from labeled elements>
-3. Use ONLY text/labels you can actually see in the screenshot or in the labeled elements. Never invent.
-4. If the changes affect the root/home screen, respond: DONE
-5. If you're stuck (e.g., a walkthrough/onboarding screen is blocking), try: TAP: <whatever button dismisses it>
+Look at this screenshot of the current screen. You have 3 possible actions:
 
-Respond with ONLY "DONE" or "TAP: <label>" — nothing else."""},
+1. DONE — The target screen is already visible, or the modified view is on this screen.
+2. TAP: <label> — Tap on a visible element to navigate deeper. Use ONLY text you can see in the screenshot or labeled elements.
+3. SCROLL: DOWN (or UP) — The target view might be below/above the visible area on a scrollable screen. Use this if the navigation hints say the view is inside a ScrollView/List but you can't see it yet.
+
+Decision guide:
+- If the changes affect the root/home screen, respond: DONE
+- If you see the target view content, respond: DONE
+- If the screen is scrollable and the target might be off-screen, respond: SCROLL: DOWN
+- If there's a walkthrough/onboarding blocking, try: TAP: <dismiss button>
+- Otherwise navigate with: TAP: <label>
+
+Respond with ONLY "DONE", "TAP: <label>", or "SCROLL: DOWN/UP" — nothing else."""},
                 {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}}
             ])
             
@@ -511,8 +540,9 @@ Respond with ONLY "DONE" or "TAP: <label>" — nothing else."""},
                 fallback_prompt = f"""You are navigating an iOS app. The developer modified: {file_list}
 Navigation hints: {nav_hints}
 Labeled elements on screen: {labeled_elements}
-If the target is already showing or changes are on the home screen, respond DONE. 
-Otherwise respond TAP: <label> using only labels from above. Respond with ONLY "DONE" or "TAP: <label>"."""
+Actions: DONE (target visible), TAP: <label>, SCROLL: DOWN/UP (if target is off-screen in a scrollable view).
+If the target is already showing or changes are on the home screen, respond DONE.
+Respond with ONLY "DONE", "TAP: <label>", or "SCROLL: DOWN/UP"."""
                 response = text_llm.invoke(fallback_prompt).content.strip()
                 print(f"  🧠 Fallback LLM decided: {response}")
             except Exception as e2:
@@ -536,6 +566,20 @@ Otherwise respond TAP: <label> using only labels from above. Respond with ONLY "
                 break
             
             time.sleep(3)
+        elif response.startswith("SCROLL:"):
+            direction = response.replace("SCROLL:", "").strip().upper()
+            if direction not in ("DOWN", "UP", "LEFT", "RIGHT"):
+                direction = "DOWN"
+            nav_log.append(f"Step {step+1}: Scrolling {direction}")
+            print(f"  📜 Step {step+1}: Scrolling {direction}")
+            
+            success = run_maestro_scroll(device_udid, workspace_path, bundle_id, direction)
+            if not success:
+                nav_log.append(f"  ↳ Scroll failed!")
+                print(f"  ❌ Scroll {direction} failed!")
+                break
+            
+            time.sleep(2)
         else:
             nav_log.append(f"Step {step+1}: Unexpected: {response}")
             print(f"  ⚠️ Unexpected: {response}")
@@ -555,9 +599,11 @@ Otherwise respond TAP: <label> using only labels from above. Respond with ONLY "
 
 def _analyze_navigation_from_source(workspace_path: str, file_paths: list) -> str:
     """
-    Phase 1: Analyze the modified file paths to deduce the navigation structure.
-    Uses file path conventions (Features/<Section>/<Screen>.swift) and optionally
-    reads coordinator/router files to understand the app's navigation graph.
+    Phase 1: Analyze the modified file paths AND their content to deduce:
+    - Which feature section the view belongs to
+    - Whether the view is inside a ScrollView/List (needs scrolling)
+    - Whether it's a root, detail, or nested screen
+    - Navigation graph structure from coordinators/routers
     """
     hints = []
     
@@ -582,23 +628,63 @@ def _analyze_navigation_from_source(workspace_path: str, file_paths: list) -> st
         elif "Cell" in filename or "Row" in filename:
             hints.append(f"Modified list item: '{filename}' (likely visible on a list screen)")
         
-        # Check if it's a detail vs. list view
+        # Check if it's a detail vs. list view (from filename)
         if "Detail" in filename or "Edit" in filename:
             hints.append("This is a DETAIL screen — requires tapping into a list item first")
         elif "Home" in filename or "Main" in filename or "Root" in filename:
             hints.append("This is the HOME/ROOT screen — no navigation needed")
         elif "Tab" in filename:
             hints.append("This modifies tab bar — visible on root screen")
+        
+        # ─── Read the actual file content to detect scroll containers ───
+        full_path = fp if os.path.isabs(fp) else os.path.join(workspace_path, fp)
+        try:
+            if os.path.exists(full_path):
+                with open(full_path, "r", errors="ignore") as f:
+                    content = f.read()
+                
+                # Detect scroll containers
+                scroll_indicators = ["ScrollView", "List {", "List(", "UIScrollView", 
+                                     "UITableView", "UICollectionView", "LazyVStack", "LazyHStack",
+                                     "ForEach"]
+                found_scroll = [s for s in scroll_indicators if s in content]
+                if found_scroll:
+                    hints.append(f"View uses scrollable container: {', '.join(found_scroll)} — may need SCROLL to reach target element")
+                
+                # Detect if it's a Section/Group inside a List (often at the bottom)
+                if "Section" in content and any(s in content for s in ["List", "Form"]):
+                    hints.append("View has Sections inside List/Form — target section may be off-screen, scroll needed")
+                
+                # Detect navigation links (tells us this view pushes to other screens)
+                if "NavigationLink" in content or "NavigationDestination" in content:
+                    hints.append("View contains NavigationLinks — may lead to deeper screens")
+                    
+        except Exception:
+            pass
     
-    # Try to find navigation coordinators or routers for deeper insight
+    # ─── Scan for app-level navigation structure ───
     try:
         import glob
-        coordinators = glob.glob(os.path.join(workspace_path, "**/*Coordinator*.swift"), recursive=True)
-        coordinators += glob.glob(os.path.join(workspace_path, "**/*Router*.swift"), recursive=True)
-        coordinators += glob.glob(os.path.join(workspace_path, "**/*TabBar*.swift"), recursive=True)
+        nav_files = []
+        for pattern in ["*Coordinator*.swift", "*Router*.swift", "*TabBar*.swift", 
+                        "*Navigator*.swift", "*AppDelegate*.swift", "*SceneDelegate*.swift"]:
+            nav_files += glob.glob(os.path.join(workspace_path, "**", pattern), recursive=True)
         
-        if coordinators:
-            hints.append(f"Navigation files found: {', '.join(os.path.basename(c) for c in coordinators[:3])}")
+        if nav_files:
+            hints.append(f"Navigation files: {', '.join(os.path.basename(c) for c in nav_files[:5])}")
+            
+            # Read the first coordinator/router to understand tab structure
+            for nf in nav_files[:2]:
+                try:
+                    with open(nf, "r", errors="ignore") as f:
+                        nav_content = f.read()
+                    # Extract tab names from tab bar setup
+                    import re
+                    tab_matches = re.findall(r'(?:tabItem|Tab|title).*?["\']([^"\'\']+)["\']', nav_content)
+                    if tab_matches:
+                        hints.append(f"App tabs: {', '.join(tab_matches[:6])}")
+                except Exception:
+                    pass
     except Exception:
         pass
     
