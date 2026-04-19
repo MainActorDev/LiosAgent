@@ -517,15 +517,15 @@ def ui_vision_validator_node(state: AgentState):
     workspace_path = state.get("workspace_path")
     arch_components = blueprint.get("architecture_components", [])
     
-    # Check if this feature involves UI work
-    ui_keywords = ["SwiftUI", "UIKit", "View", "Construkt", "UI", "Screen", "Component"]
-    has_ui = any(kw.lower() in comp.lower() for comp in arch_components for kw in ui_keywords)
+    # We now universally run vision tests if ANY Swift file was modified, avoiding brittle architecture keyword mismatches
+    files = blueprint.get("files_to_modify", []) + blueprint.get("files_to_create", [])
+    has_ui = any(str(f.get("filepath", "")).endswith(".swift") for f in files)
     
     print(f"📱 UI Vision Check evaluation initialized...")
     
     if not has_ui:
-        print("⏭️ UI Vision Check Skipped: No UI components detected in Blueprint architecture.")
-        return {"history": ["UI Vision Check: Skipped (no UI components in blueprint)."]}
+        print("⏭️ UI Vision Check Skipped: No Swift source files were modified in this blueprint.")
+        return {"history": ["UI Vision Check: Skipped (no Swift files touched)."]}
     
     print("📸 Booting Simulator and waiting for view to flush pixels...")
     screenshot_result = capture_simulator_screenshot(workspace_path)
