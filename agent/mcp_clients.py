@@ -63,7 +63,7 @@ class MCPManager:
         # is the target project, not the orchestrator's directory.
         uvx_path = shutil.which("uvx")
         if uvx_path and abs_workspace:
-            serena_cmd = f"cd {abs_workspace} && {uvx_path} --from git+https://github.com/oraios/serena serena start-mcp-server --project-from-cwd --open-web-dashboard false"
+            serena_cmd = f"cd '{abs_workspace}' && {uvx_path} --from git+https://github.com/oraios/serena serena start-mcp-server --project-from-cwd --open-web-dashboard false"
             server_configs.append(("SerenaMCP", "bash", ["-c", serena_cmd]))
         elif not uvx_path:
             print("ℹ️ SerenaMCP skipped: `uvx` not found. Install with: curl -LsSf https://astral.sh/uv/install.sh | sh")

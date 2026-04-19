@@ -37,7 +37,7 @@ def initialize_workspace_node(state: AgentState):
     
     # Using the tool to clone
     result = clone_isolated_workspace(task_id, repo_url)
-    actual_path = os.path.join(os.path.dirname(__file__), "..", ".workspaces", task_id)
+    actual_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".workspaces", task_id))
     branch_name = f"ios-agent-issue-{task_id}"
     
     return {

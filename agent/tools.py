@@ -250,31 +250,35 @@ def commit_and_push_branch(workspace_path: str, branch_name: str, commit_message
     try:
         subprocess.run(["git", "checkout", "-B", branch_name], cwd=workspace_path, check=True, capture_output=True)
         
-        status = subprocess.run(["git", "status", "--porcelain"], cwd=workspace_path, capture_output=True, text=True)
-        if not status.stdout.strip():
-            return "SKIPPED: No files were fundamentally changed by the Agent. Working tree is completely clean."
+        # Forcefully untrack .serena/ artifacts BEFORE checking status.
+        # .gitignore alone doesn't work if files are already tracked in the repo's history.
+        serena_dir = os.path.join(workspace_path, ".serena")
+        if os.path.isdir(serena_dir):
+            subprocess.run(["git", "rm", "-r", "--cached", "--quiet", ".serena/"], cwd=workspace_path, capture_output=True)
         
-        # Ensure MCP tool artifacts (.serena cache, etc.) are never committed
+        # Ensure .serena/ is in .gitignore so it never gets re-added
         gitignore_path = os.path.join(workspace_path, ".gitignore")
-        ignore_entries = [".serena/"]
         if os.path.exists(gitignore_path):
             with open(gitignore_path, "r") as f:
                 existing = f.read()
-            for entry in ignore_entries:
-                if entry not in existing:
-                    with open(gitignore_path, "a") as f:
-                        f.write(f"\n{entry}\n")
+            if ".serena/" not in existing:
+                with open(gitignore_path, "a") as f:
+                    f.write("\n.serena/\n")
         else:
             with open(gitignore_path, "w") as f:
-                f.write("\n".join(ignore_entries) + "\n")
+                f.write(".serena/\n")
         
-        # Reset any already-staged .serena files, then stage real changes
-        subprocess.run(["git", "reset", "--", ".serena/"], cwd=workspace_path, capture_output=True)
+        # Stage all real changes
         subprocess.run(["git", "add", "-A"], cwd=workspace_path, check=True, capture_output=True)
         
-        # Re-check: after excluding .serena, is there actually anything left?
-        status2 = subprocess.run(["git", "diff", "--cached", "--stat"], cwd=workspace_path, capture_output=True, text=True)
-        if not status2.stdout.strip():
+        # Check what's actually staged — exclude .gitignore-only changes
+        staged = subprocess.run(["git", "diff", "--cached", "--name-only"], cwd=workspace_path, capture_output=True, text=True)
+        staged_files = [f for f in staged.stdout.strip().split("\n") if f and not f.startswith(".serena/")]
+        
+        # If the only staged change is .gitignore itself (from our injection), that doesn't count
+        if not staged_files or (len(staged_files) == 1 and staged_files[0] == ".gitignore"):
+            # Reset everything so we don't leave a dirty state
+            subprocess.run(["git", "checkout", "--", "."], cwd=workspace_path, capture_output=True)
             return "SKIPPED: No files were fundamentally changed by the Agent. Working tree is completely clean."
         
         subprocess.run(["git", "commit", "-m", commit_message], cwd=workspace_path, check=True, capture_output=True)
