@@ -282,7 +282,8 @@ def ui_subagent_node(state: AgentState):
     blueprint = state.get("blueprint", {})
     agent_skills = state.get("agent_skills", "No custom rules found.")
     
-    tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file]
+    from agent.tools import list_workspace_files
+    tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file, list_workspace_files]
     from langgraph.prebuilt import create_react_agent
     agent_executor = create_react_agent(llm, tools=tools)
     
@@ -337,7 +338,8 @@ def network_subagent_node(state: AgentState):
     blueprint = state.get("blueprint", {})
     agent_skills = state.get("agent_skills", "No custom rules found.")
     
-    tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file]
+    from agent.tools import list_workspace_files
+    tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file, list_workspace_files]
     from langgraph.prebuilt import create_react_agent
     agent_executor = create_react_agent(llm, tools=tools)
     
@@ -382,7 +384,8 @@ def general_coder_node(state: AgentState):
     blueprint = state.get("blueprint", {})
     agent_skills = state.get("agent_skills", "No custom rules found.")
     
-    tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file]
+    from agent.tools import list_workspace_files
+    tools = [read_workspace_file, read_workspace_file_lines, write_workspace_file, patch_workspace_file, list_workspace_files]
     from langgraph.prebuilt import create_react_agent
     agent_executor = create_react_agent(llm, tools=tools)
     

@@ -84,6 +84,29 @@ def write_workspace_file(workspace_path: str, file_relative_path: str, content: 
         return f"Error writing file: {str(e)}"
 
 @tool
+def list_workspace_files(workspace_path: str, directory_relative_path: str = "") -> str:
+    """List the contents of a directory inside the isolated workspace."""
+    full_path = os.path.join(workspace_path, directory_relative_path)
+    if not os.path.exists(full_path):
+        return f"Error: Directory '{directory_relative_path}' not found."
+    if not os.path.isdir(full_path):
+        return f"Error: '{directory_relative_path}' is a file, not a directory."
+        
+    try:
+        entries = os.listdir(full_path)
+        if not entries:
+            return "Directory is empty."
+        
+        output = [f"Contents of {directory_relative_path or './'}:"]
+        for entry in sorted(entries):
+            # Annotate directories with a trailing slash
+            is_dir = os.path.isdir(os.path.join(full_path, entry))
+            output.append(f" - {entry}{'/' if is_dir else ''}")
+        return "\n".join(output)
+    except Exception as e:
+        return f"Error listing directory '{directory_relative_path}': {str(e)}"
+
+@tool
 def read_workspace_file_lines(workspace_path: str, file_relative_path: str, start_line: int = 1, end_line: int = 50) -> str:
     """
     Read a specific range of lines from a file, with line numbers prepended.
