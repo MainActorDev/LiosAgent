@@ -105,6 +105,35 @@ def commit_and_push_branch(workspace_path: str, branch_name: str, commit_message
             subprocess.run(["git", "checkout", "--", "."], cwd=workspace_path, capture_output=True)
             return "SKIPPED: No files were fundamentally changed by the Agent. Working tree is completely clean."
         
+        # Extract full textual diff for self-documenting commit message
+        full_diff = subprocess.run(["git", "diff", "--cached"], cwd=workspace_path, capture_output=True, text=True).stdout
+        
+        try:
+            from agent.llm_factory import get_llm
+            from langchain_core.messages import HumanMessage
+            
+            llm = get_llm(role="planning")
+            # Limit diff size aggressively to avoid exploding the context window
+            capped_diff = full_diff[:15000]
+            
+            prompt = f"""Generate a concise, self-documenting Git commit message for the following codebase changes. 
+Use exactly the Conventional Commits format (e.g. 'feat: description' or 'fix: description').
+Do not wrap the response in markdown or backticks. Return nothing but the raw commit message text.
+
+Diff:
+{capped_diff}"""
+            
+            generated_msg = llm.invoke([HumanMessage(content=prompt)]).content.strip()
+            
+            # Sanitize any accidental wrapper artifacts from LLM
+            generated_msg = generated_msg.strip('`').replace("markdown", "").strip()
+            
+            if generated_msg and len(generated_msg) > 5:
+                commit_message = f"{generated_msg}\n\n[Lios-Agent Generated for {commit_message}]"
+        except Exception as e:
+            # Fallback to the generic task ID message if LLM fails
+            print(f"⚠️ Failed to dynamically generate commit message: {e}")
+            
         subprocess.run(["git", "commit", "-m", commit_message], cwd=workspace_path, check=True, capture_output=True)
         
         # Authenticate the Remote if a token is available
