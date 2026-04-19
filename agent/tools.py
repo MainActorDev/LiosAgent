@@ -306,7 +306,7 @@ def capture_simulator_screenshot(workspace_path: str, scheme: str = "App") -> st
         except Exception:
             active_scheme = scheme
             
-        # 4. Build for simulator and install
+        # 4. Build for simulator
         subprocess.run(
             ["xcodebuild", "build", "-scheme", active_scheme,
              "-destination", f"platform=iOS Simulator,id={target_udid}",
@@ -314,9 +314,25 @@ def capture_simulator_screenshot(workspace_path: str, scheme: str = "App") -> st
             cwd=build_dir, check=True, capture_output=True, text=True
         )
         
-        # 4. Wait for simulator to settle then capture
+        # 5. Extract the compiled .app bundle and its Bundle ID to install & launch it natively
+        app_paths = glob.glob(os.path.join(build_dir, "DerivedData/Build/Products/*-iphonesimulator/*.app"))
+        if not app_paths:
+            return "Error: Could not locate compiled .app bundle in DerivedData."
+        
+        app_path = app_paths[0]
+        subprocess.run(["xcrun", "simctl", "install", target_udid, app_path], check=True, capture_output=True)
+        
+        # Determine Bundle ID dynamically using PlistBuddy
+        plist_path = os.path.join(app_path, "Info.plist")
+        bundle_id_res = subprocess.run(["/usr/libexec/PlistBuddy", "-c", "Print CFBundleIdentifier", plist_path], capture_output=True, text=True)
+        bundle_id = bundle_id_res.stdout.strip()
+        
+        if bundle_id:
+            subprocess.run(["xcrun", "simctl", "launch", target_udid, bundle_id], check=False, capture_output=True)
+        
+        # 6. Wait for simulator view rendering constraint layout to flush correctly to GPU
         import time
-        time.sleep(3)
+        time.sleep(5)
         subprocess.run(
             ["xcrun", "simctl", "io", target_udid, "screenshot", screenshot_path],
             check=True, capture_output=True
