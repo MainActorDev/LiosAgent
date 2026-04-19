@@ -282,8 +282,36 @@ async def github_webhook(request: Request, background_tasks: BackgroundTasks):
                         old_instructions = state.values.get("instructions", "")
                         new_instructions = old_instructions + f"\n\n[Developer Clarification]:\n{body}"
                         print(f"🚀 Resuming LangGraph Vetting for Issue {issue_num} with new clarification")
-                        await graph_app.aupdate_state(config, {"instructions": new_instructions})
+                        await graph_app.aupdate_state(config, {
+                            "instructions": new_instructions,
+                            "halted": False,
+                            "compiler_errors": []
+                        })
                         await graph_app.ainvoke(None, config=config)
+                        
+                    # Failsafe: if the user typed "redo" but the thread was already DEAD (because it failed before the trap feature was added)
+                    elif "redo" in body.lower() and not state.next:
+                        print(f"🚀 Force restarting dead workflow for Issue {issue_num}")
+                        import time
+                        
+                        fresh_config = {"configurable": {"thread_id": f"issue-{issue_num}-redo-{int(time.time())}"}}
+                        issue_data = payload.get("issue", {})
+                        repo_data = payload.get("repository", {})
+                        install_data = payload.get("installation", {})
+                        
+                        initial_state = {
+                            "task_id": issue_num,
+                            "instructions": f"Title: {issue_data.get('title')}\n\nDescription:\n{issue_data.get('body', '')}\n\n[Developer Redo Clarification]:\n{body}",
+                            "repo_url": repo_data.get("ssh_url"),
+                            "repo_full_name": repo_data.get("full_name"),
+                            "installation_id": str(install_data.get("id", "")),
+                            "history": [],
+                            "compiler_errors": [],
+                            "retries_count": 0,
+                            "halted": False
+                        }
+                        
+                        await graph_app.ainvoke(initial_state, config=fresh_config)
                         
                 except Exception as e:
                     print(f"❌ Core LangGraph Resume Error: {e}")
