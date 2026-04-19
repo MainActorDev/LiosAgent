@@ -1,0 +1,6 @@
+# This config controls the issue template chooser page
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 General Discussion
+    url: https://github.com/lionparcel/Lios-Agent/discussions
+    about: Use discussions for questions or ideas that aren't actionable agent tasks.

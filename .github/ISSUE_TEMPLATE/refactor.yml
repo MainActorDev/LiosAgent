@@ -1,0 +1,74 @@
+name: "♻️ Refactor"
+description: "Request the Lios-Agent to refactor or improve existing code"
+title: "[Refactor]: "
+labels: ["agent-task", "refactor"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Lios-Agent Refactor Request
+        Describe what needs to be restructured and why. The agent will preserve existing behavior while improving code quality.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Refactor Description
+      description: "What code needs refactoring? Describe the current state and the desired outcome."
+      placeholder: |
+        The OrderService class has grown to 800+ lines and handles both API calls and local caching.
+        Split it into separate OrderAPIService and OrderCacheService following the Single Responsibility Principle.
+    validations:
+      required: true
+
+  - type: textarea
+    id: target-files
+    attributes:
+      label: Target Files
+      description: "List the specific files and line ranges that should be refactored."
+      placeholder: |
+        - `Sources/Network/OrderService.swift` (entire file — split into two)
+        - `Sources/Features/Order/OrderViewModel.swift` (lines 80-120 — update service references)
+        - `Tests/OrderServiceTests.swift` (update to test both new services)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: refactor-type
+    attributes:
+      label: Refactor Type
+      description: "What kind of refactoring is needed?"
+      options:
+        - "Extract / Split — Break a large file into smaller components"
+        - "Rename / Move — Rename symbols or relocate files"
+        - "Pattern Migration — Adopt a new architecture pattern"
+        - "Performance — Optimize for speed or memory"
+        - "Dependency Update — Replace or upgrade a dependency"
+        - "Other (describe above)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints
+      description: "Any behavioral contracts, public API surfaces, or backward compatibility requirements that must be preserved."
+      placeholder: |
+        - All existing unit tests must continue to pass
+        - Public API surface of OrderService must not change (other modules depend on it)
+        - Must maintain Codable conformance on all models
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: "How do we verify the refactor didn't break anything and achieved its goal?"
+      placeholder: |
+        - [ ] OrderAPIService handles only network calls
+        - [ ] OrderCacheService handles only local persistence
+        - [ ] All existing tests pass with updated references
+        - [ ] New tests added for each service independently
+        - [ ] No increase in build time
+    validations:
+      required: true
