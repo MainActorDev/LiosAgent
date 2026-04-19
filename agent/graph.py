@@ -794,7 +794,20 @@ def build_graph(checkpointer=None):
         
         # Notify developer based on the precise outcome
         if "ERROR" in push_msg or "SKIPPED" in push_msg:
-            comment = f"⚠️ **Push Halted**\n\nThe orchestrator completed execution but the final push was aborted:\n```text\n{push_msg}\n```\n\n*(This typically means the LLM didn't actually modify any files in the workspace, or there was a git authentication issue).*”"
+            # Extract actual crash logs from state
+            err_details = ""
+            compiler_errors = state.get("compiler_errors", [])
+            last_hist = state.get("history", [""])[-1]
+            
+            if compiler_errors:
+                caps = str(compiler_errors[-1])
+                err_details = f"\n\n**🛑 Compiler / Build Crash:**\n```text\n{caps[-1500:]}\n```"
+            elif "FATAL" in last_hist or "ERROR" in last_hist.upper():
+                err_details = f"\n\n**🛑 Pipeline Crash:**\n```text\n{last_hist}\n```"
+                
+            comment = f"⚠️ **Push Halted**\n\nThe orchestrator encountered a critical bottleneck and aborted the execution branch:\n```text\n{push_msg}\n```"
+            comment += err_details
+            comment += "\n\n💡 *Tip: You can reply directly to this comment (e.g. `Redo: use a VStack instead`) to revive this workflow and try again!*"
         else:
             comment = f"✅ **Coding & Validation Complete!**\n\nThe background agents compiled the code successfully and the UI tests passed.\nAll logic and design tokens have been safely pushed to the remote branch `{branch_name}`.\n"
             
