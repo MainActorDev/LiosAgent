@@ -832,7 +832,11 @@ def build_graph(checkpointer=None):
             comment += err_details
             comment += "\n\n💡 *Tip: You can reply directly to this comment (e.g. `Redo: use a VStack instead`) to revive this workflow and try again!*"
         else:
-            comment = f"✅ **Coding & Validation Complete!**\n\nThe background agents compiled the code successfully and the UI tests passed.\nAll logic and design tokens have been safely pushed to the remote branch `{branch_name}`.\n"
+            last_hist = state.get("history", [""])[-1]
+            if "UI Vision Check: FAILED" in last_hist:
+                comment = f"⚠️ **Partial Success (Code Pushed, Vision Failed)**\n\nThe background agents compiled the code successfully and the architecture modifications have been safely pushed to `{branch_name}`. However, the autonomous Maestro UI Validation failed or timed out:\n\n```text\n{last_hist}\n```\n\n*Please manually verify the visual logic below:*\n"
+            else:
+                comment = f"✅ **Coding & Validation Complete!**\n\nThe background agents compiled the code successfully and the UI tests passed.\nAll logic and design tokens have been safely pushed to the remote branch `{branch_name}`.\n"
             
             # Explicitly render identical visual context into the PR for humans!
             rendered_shot = state.get("screenshot_path")
