@@ -405,6 +405,7 @@ After completing, ensure all acceptance criteria are met."""
         }
         print("🎨 Architect Coder natively mounting FigmaMCP into OpenCode sandbox...")
         
+    os.makedirs(workspace_path, exist_ok=True)
     config_path = os.path.join(workspace_path, "opencode.json")
     with open(config_path, "w") as f:
         json.dump(opencode_config, f, indent=2)
