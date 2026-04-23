@@ -41,7 +41,9 @@ class VaultManager:
         cls._ensure_dir(vault_path)
         db_path = os.path.join(vault_path, ".state.db")
         conn = sqlite3.connect(db_path, check_same_thread=False)
-        return SqliteSaver(conn)
+        checkpointer = SqliteSaver(conn)
+        checkpointer.setup()
+        return checkpointer
 
     @classmethod
     def dump_human_readable_state(cls, vault_path: str, state_dict: dict):
