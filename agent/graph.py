@@ -285,9 +285,9 @@ def blueprint_presentation_node(state: AgentState):
     md += f"\n**Architecture Components:** `{', '.join(blueprint_dict.get('architecture_components', []))}`\n\n"
     md += "---\n*Please reply with **Approve** to execute this graph.*"
     
-    if repo_full_name and installation_id:
-        print(f"✅ Generating Blueprint markdown and posting to GitHub for {repo_full_name}#{task_id}...")
-        result = post_github_comment(repo_full_name, task_id, installation_id, md)
+    if task_id:
+        print(f"✅ Generating Blueprint markdown and posting to GitHub for Task #{task_id}...")
+        result = post_github_comment(task_id, md)
         print(f"GitHub Post Result: {result}")
         
     return {"history": ["Blueprint posted to GitHub. Suspended thread awaiting approval."]}
@@ -784,8 +784,8 @@ Only reply with a polite comment asking for clarification if the issue is litera
         installation_id = state.get("installation_id")
         
         from agent.tools import post_github_comment
-        if repo_full_name and installation_id:
-            post_github_comment(repo_full_name, task_id, installation_id, response)
+        if task_id:
+            post_github_comment(task_id, response)
             
         return {"history": ["Issue Vetting: Failed. Commented on GitHub and halted."]}
 
@@ -851,11 +851,11 @@ def prd_decomposer_node(state: AgentState):
     task_id = state.get("task_id")
     installation_id = state.get("installation_id")
     
-    if repo_full_name and installation_id:
+    if task_id:
         from agent.tools import post_github_comment
         feature_name = blueprint.get("feature_name", "Feature")
         md = format_stories_for_github(stories, feature_name)
-        post_github_comment(repo_full_name, task_id, installation_id, md)
+        post_github_comment(task_id, md)
     
     return {
         "prd_stories": stories,
@@ -1023,9 +1023,7 @@ def build_graph(checkpointer=None):
         push_msg = commit_and_push_branch(
             workspace_path, 
             branch_name, 
-            f"Agent Implementation for #{task_id}",
-            installation_id=installation_id,
-            repo_full_name=repo_full_name
+            f"Agent Implementation for #{task_id}"
         )
         
         # Notify developer based on the precise outcome
@@ -1064,8 +1062,8 @@ def build_graph(checkpointer=None):
                 
             comment += f"\n<details><summary><b>Git Push Receipt</b></summary>\n\n```text\n{push_msg}\n```\n</details>\n\n### 🚀 [Click here to quickly open a Pull Request!](https://github.com/{repo_full_name}/compare/{branch_name}?expand=1)"
         
-        if repo_full_name and installation_id:
-            post_github_comment(repo_full_name, task_id, installation_id, comment)
+        if task_id:
+            post_github_comment(task_id, comment)
             
         # Intelligent garbage collection:
         # If the push successfully merged to the cloud, there is no reason to hoard 300MB of local Xcode/SPM build caches.
