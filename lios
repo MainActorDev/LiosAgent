@@ -1,0 +1,14 @@
+#!/bin/bash
+# Lios-Agent CLI Wrapper
+# This automatically activates the virtual environment and passes arguments to cli.py
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Ensure venv exists
+if [ ! -d "$DIR/venv" ]; then
+    echo "Virtual environment not found. Please run: python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt"
+    exit 1
+fi
+
+source "$DIR/venv/bin/activate"
+python "$DIR/cli.py" "$@"
