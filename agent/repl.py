@@ -46,9 +46,9 @@ class UniversalREPL:
         return compiled_input
 
     @staticmethod
-    def chat_loop(prompt_text: str = "You", workspace_root: str = ".") -> str:
+    def single_prompt(prompt_text: str = "You", workspace_root: str = ".") -> str:
         """
-        A single turn chat loop that handles slash commands.
+        A single turn prompt that handles slash commands.
         Returns the parsed instruction string.
         """
         while True:
@@ -73,6 +73,67 @@ class UniversalREPL:
             except (KeyboardInterrupt, EOFError):
                 console.print("\n[yellow]Session aborted by user.[/yellow]")
                 exit(0)
+
+    @staticmethod
+    def interactive_intake_session(epic_name: str, workspace_root: str = ".") -> str:
+        """
+        Boots up an LLM-backed interactive conversation to refine requirements.
+        Returns the concatenated chat history + file context.
+        """
+        from agent.llm_factory import get_llm
+        from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+        
+        try:
+            llm = get_llm(role="planning")
+        except Exception as e:
+            console.print(f"[bold red]Failed to initialize LLM for REPL:[/bold red] {e}")
+            # Fallback to single prompt
+            return UniversalREPL.single_prompt("You", workspace_root)
+            
+        system_prompt = SystemMessage(content="""You are an expert iOS Product Manager. The user wants to build a new feature.
+They will provide an initial PRD or description. Ask clarifying questions until you have enough detail to write a comprehensive technical PRD.
+Do not write the PRD yet. Just ask 1-2 focused questions at a time to clarify the user's intent.
+Once you have enough detail to proceed with architecture, or if the user explicitly says they are done, output exactly 'READY_TO_ARCHITECT' on a new line. Do not output this prematurely.""")
+
+        messages = [system_prompt]
+        accumulated_context = []
+        
+        while True:
+            try:
+                user_input = Prompt.ask(f"[bold cyan]You (type /done to finish)[/bold cyan]")
+                
+                if not user_input.strip():
+                    continue
+                    
+                if user_input.strip() in ["/exit", "/done"]:
+                    console.print("[yellow]Intake complete.[/yellow]")
+                    break
+                
+                parsed_input = UniversalREPL.parse_input(user_input, workspace_root)
+                accumulated_context.append(f"User: {parsed_input}")
+                messages.append(HumanMessage(content=parsed_input))
+                
+                with console.status("[dim]Agent is thinking...[/dim]"):
+                    response = llm.invoke(messages)
+                    
+                ai_text = response.content.strip()
+                messages.append(AIMessage(content=ai_text))
+                
+                if "READY_TO_ARCHITECT" in ai_text:
+                    clean_text = ai_text.replace("READY_TO_ARCHITECT", "").strip()
+                    if clean_text:
+                        UniversalREPL.print_agent_message(clean_text)
+                        accumulated_context.append(f"Agent: {clean_text}")
+                    break
+                else:
+                    UniversalREPL.print_agent_message(ai_text)
+                    accumulated_context.append(f"Agent: {ai_text}")
+                    
+            except (KeyboardInterrupt, EOFError):
+                console.print("\n[yellow]Session aborted by user.[/yellow]")
+                exit(0)
+                
+        return "\n\n".join(accumulated_context)
 
     @staticmethod
     def print_agent_message(message: str, title: str = "Lios-Agent"):

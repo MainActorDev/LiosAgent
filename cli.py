@@ -40,7 +40,7 @@ def epic(
     console.print("[dim]Starting interactive intake session...[/dim]")
     UniversalREPL.print_agent_message("Hello! I am ready to architect your new Epic. Please provide your PRD or describe what we are building. You can mention files using `@path/to/file`.")
     
-    instructions = UniversalREPL.chat_loop(prompt_text="You", workspace_root=".")
+    instructions = UniversalREPL.interactive_intake_session(epic_name=name, workspace_root=".")
     
     # Write the initial state out
     state = {
@@ -71,7 +71,7 @@ def story(
     console.print("[dim]Starting interactive intake session...[/dim]")
     UniversalREPL.print_agent_message(f"Hello! I am ready to architect Story `{story_id}`. Please describe the task. You can mention files using `@path/to/file`.")
     
-    instructions = UniversalREPL.chat_loop(prompt_text="You", workspace_root=".")
+    instructions = UniversalREPL.interactive_intake_session(epic_name=epic_name, workspace_root=".")
     
     state = {
         "task_id": story_id,
@@ -150,7 +150,7 @@ def execute(
                 
                 if next_node == "blueprint_approval_gate":
                     UniversalREPL.print_agent_message("The Architectural Blueprint has been generated. Please review `blueprint.md` in your vault.\nType **Approve** to begin coding, or provide feedback to regenerate the blueprint.")
-                    feedback = UniversalREPL.chat_loop()
+                    feedback = UniversalREPL.single_prompt()
                     
                     if "approve" in feedback.lower():
                         await graph_app.aupdate_state(config, {"history": ["Blueprint approved by human, proceeding..."]})
@@ -164,7 +164,7 @@ def execute(
                 
                 elif next_node == "await_clarification":
                     UniversalREPL.print_agent_message("I am stuck and need clarification or human intervention.")
-                    feedback = UniversalREPL.chat_loop()
+                    feedback = UniversalREPL.single_prompt()
                     old_instructions = current_state.values.get("instructions", "")
                     new_instructions = old_instructions + f"\n\n[Developer Clarification]:\n{feedback}"
                     await graph_app.aupdate_state(config, {
@@ -175,7 +175,7 @@ def execute(
                 
                 elif next_node == "push":
                     UniversalREPL.print_agent_message("Validation complete or aborted. Ready to push to GitHub?")
-                    feedback = UniversalREPL.chat_loop("Push? [y/N]")
+                    feedback = UniversalREPL.single_prompt("Push? [y/N]")
                     if "y" in feedback.lower():
                         # Let it proceed to push
                         pass
