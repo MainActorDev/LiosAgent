@@ -190,13 +190,22 @@ Diff:
             
         subprocess.run(["git", "commit", "-m", commit_message], cwd=workspace_path, check=True, capture_output=True)
         
-        # Authenticate the Remote if a token is available
-        github_token = os.environ.get("GITHUB_TOKEN")
+        # Authenticate the Remote via the GitHub App so commits/pushes are authored by the bot
+        app_id = os.environ.get("GITHUB_APP_ID")
+        pem_path = os.environ.get("GITHUB_PRIVATE_KEY_PATH", "./lios-agent.private-key.pem")
         repo_full_name = os.environ.get("GITHUB_REPO") or repo_full_name
         
-        if github_token and repo_full_name:
+        if app_id and os.path.exists(pem_path) and repo_full_name:
+            from github import GithubIntegration
+            with open(pem_path, 'r') as pem_file:
+                private_key = pem_file.read()
+            integration = GithubIntegration(app_id, private_key)
+            owner, repo_name = repo_full_name.split('/')
+            installation = integration.get_repo_installation(owner, repo_name)
+            access_token = integration.get_access_token(installation.id).token
+            
             # Set the remote URL to use the x-access-token for seamless pushing
-            auth_url = f"https://x-access-token:{github_token}@github.com/{repo_full_name}.git"
+            auth_url = f"https://x-access-token:{access_token}@github.com/{repo_full_name}.git"
             subprocess.run(["git", "remote", "set-url", "origin", auth_url], cwd=workspace_path, check=True, capture_output=True)
                 
         # Push the branch to the remote origin
@@ -208,21 +217,30 @@ Diff:
 def post_github_comment(task_id: str, message: str) -> str:
     """
     Posts a structured markdown payload to a GitHub issue.
-    Works entirely via push-based CLI API using GITHUB_TOKEN.
+    Dynamically authenticates as the GitHub App so comments are authored by the bot.
     """
-    github_token = os.environ.get("GITHUB_TOKEN")
+    app_id = os.environ.get("GITHUB_APP_ID")
+    pem_path = os.environ.get("GITHUB_PRIVATE_KEY_PATH", "./lios-agent.private-key.pem")
     repo_full_name = os.environ.get("GITHUB_REPO")
     
-    if not github_token or not repo_full_name:
-        return "Warning: GITHUB_TOKEN or GITHUB_REPO not set. Skipping GitHub Issue comment."
+    if not app_id or not os.path.exists(pem_path) or not repo_full_name:
+        return "Warning: GitHub App credentials or GITHUB_REPO not set. Skipping bot comment."
         
     try:
         # Determine if task_id is a valid issue number
         if not task_id.isdigit():
             return "Warning: Task ID is not an integer. Cannot post to an issue."
             
-        from github import Github
-        gh = Github(github_token)
+        from github import GithubIntegration, Github
+        with open(pem_path, 'r') as pem_file:
+            private_key = pem_file.read()
+            
+        integration = GithubIntegration(app_id, private_key)
+        owner, repo_name = repo_full_name.split('/')
+        installation = integration.get_repo_installation(owner, repo_name)
+        access_token = integration.get_access_token(installation.id).token
+        
+        gh = Github(access_token)
         repo = gh.get_repo(repo_full_name)
         issue = repo.get_issue(int(task_id))
         
