@@ -107,8 +107,8 @@ def execute(
     # Derive epic_name from the vault path (assuming .lios/epics/<epic_name>)
     epic_name = os.path.basename(os.path.normpath(vault_path))
     
-    # Start the async execution loop
-    async def run_graph():
+    # Start the synchronous execution loop
+    def run_graph():
         config = {"configurable": {"thread_id": epic_name}}
         
         # Load initial instructions from the vault's state.yml if this is the first run
@@ -117,7 +117,7 @@ def execute(
         initial_state = None
         
         # Check if LangGraph already has state for this thread
-        current_state = await graph_app.aget_state(config)
+        current_state = graph_app.get_state(config)
         if not current_state or not current_state.values:
             if os.path.exists(state_yml_path):
                 with open(state_yml_path, "r") as f:
@@ -132,10 +132,10 @@ def execute(
                 # If we have initial state and haven't started, pass it. Otherwise pass None to resume.
                 input_state = initial_state if (not current_state or not current_state.values) else None
                 
-                await graph_app.ainvoke(input_state, config=config)
+                graph_app.invoke(input_state, config=config)
                 
-                # After ainvoke completes or yields, check the state
-                current_state = await graph_app.aget_state(config)
+                # After invoke completes or yields, check the state
+                current_state = graph_app.get_state(config)
                 
                 # Dump human readable state to vault
                 if current_state and current_state.values:
@@ -153,11 +153,11 @@ def execute(
                     feedback = UniversalREPL.single_prompt()
                     
                     if "approve" in feedback.lower():
-                        await graph_app.aupdate_state(config, {"history": ["Blueprint approved by human, proceeding..."]})
+                        graph_app.update_state(config, {"history": ["Blueprint approved by human, proceeding..."]})
                     else:
                         old_instructions = current_state.values.get("instructions", "")
                         new_instructions = old_instructions + f"\n\n[Blueprint Feedback]:\n{feedback}"
-                        await graph_app.aupdate_state(config, {
+                        graph_app.update_state(config, {
                             "instructions": new_instructions, 
                             "history": ["Feedback received. Regenerating architecture plan."]
                         })
@@ -167,7 +167,7 @@ def execute(
                     feedback = UniversalREPL.single_prompt()
                     old_instructions = current_state.values.get("instructions", "")
                     new_instructions = old_instructions + f"\n\n[Developer Clarification]:\n{feedback}"
-                    await graph_app.aupdate_state(config, {
+                    graph_app.update_state(config, {
                         "instructions": new_instructions,
                         "halted": False,
                         "compiler_errors": []
@@ -189,7 +189,7 @@ def execute(
                 traceback.print_exc()
                 break
 
-    asyncio.run(run_graph())
+    run_graph()
 
 if __name__ == "__main__":
     app()
