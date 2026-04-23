@@ -458,53 +458,6 @@ After completing, ensure all acceptance criteria are met."""
         
     return {"history": [history_msg], "opencode_session_id": extracted_session}
 
-def post_approval_to_slack(task_id: str, success: bool, feedback: str = ""):
-    slack_channel = os.environ.get("SLACK_CHANNEL_ID")
-    bot_token = os.environ.get("SLACK_BOT_TOKEN")
-    if slack_channel and bot_token:
-        from slack_sdk import WebClient
-        client = WebClient(token=bot_token)
-        try:
-            status_emoji = "✅" if success else "❌"
-            
-            is_fatal = "FATAL" in feedback.upper() or "BUILD FAILED" in feedback.upper() or "ERROR:" in feedback.upper()
-            
-            if success:
-                status_text = "All compilation and UI validations have passed! Would you like me to push this code?"
-            elif is_fatal:
-                status_text = f"Critical Simulator Failure:\n_{feedback}_\n\nThe workspace was rolled back to prevent pushing broken code."
-            else:
-                status_text = f"UI Validation FAILED:\n_{feedback}_\n\nWould you like to manually approve and push this code anyway?"
-            
-            blocks = [
-                {
-                    "type": "section",
-                    "text": {"type": "mrkdwn", "text": f"{status_emoji} *AI Validation for Task #{task_id}*\n {status_text}"}
-                }
-            ]
-            
-            # Only offer the manual override button for subjective visual mismatches, NOT hard compile crashes
-            if success or not is_fatal:
-                blocks.append({
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "Approve & Push"},
-                            "style": "primary",
-                            "action_id": "approve_pr",
-                            "value": str(task_id)
-                        }
-                    ]
-                })
-                
-            client.chat_postMessage(
-                channel=slack_channel,
-                text=f"Validation Result for Task {task_id}",
-                blocks=blocks
-            )
-        except Exception as e:
-            print(f"Failed to post Slack approval: {e}")
 
 def validator_node(state: AgentState):
     workspace_path = state.get("workspace_path")
@@ -668,7 +621,6 @@ def ui_vision_validator_node(state: AgentState):
     
     if not has_ui:
         print("⏭️ UI Vision Check Skipped: No Swift source files were modified in this blueprint.")
-        post_approval_to_slack(state.get("task_id", "Unknown"), success=True)
         return {"history": ["UI Vision Check: Skipped (no Swift files touched)."]}
     
     task_id = state.get("task_id", "default_task")
@@ -677,9 +629,6 @@ def ui_vision_validator_node(state: AgentState):
     
     if "error" in screenshot_result:
         print(f"⚠️ Screenshot capture failed. Aborting Vision Check: {screenshot_result['error']}")
-        
-        post_approval_to_slack(state.get("task_id", "Unknown"), success=False, feedback=screenshot_result['error'])
-        
         return {
             "screenshot_path": "",
             "device_udid": "",
@@ -708,7 +657,6 @@ def vision_validation_node(state: AgentState):
     screenshot_path = state.get("screenshot_path", "")
     
     if not screenshot_path:
-        post_approval_to_slack(state.get("task_id", "Unknown"), success=True)
         return {"history": ["Vision Validation: Skipped (no screenshot available)."]}
     
     full_path = os.path.join(workspace_path, screenshot_path) if not os.path.isabs(screenshot_path) else screenshot_path
@@ -723,11 +671,9 @@ def vision_validation_node(state: AgentState):
     
     if vision_result["passed"]:
         print(f"✅ UI Vision PASSED: {vision_result['feedback']}")
-        post_approval_to_slack(state.get("task_id", "Unknown"), success=True)
         return {"history": [f"UI Vision Check: PASSED. {vision_result['feedback']}"]}
     else:
         print(f"❌ UI Vision FAILED: {vision_result['feedback']}")
-        post_approval_to_slack(state.get("task_id", "Unknown"), success=False, feedback=vision_result['feedback'])
         return {"history": [f"UI Vision Check: FAILED. {vision_result['feedback']}"]}
 
 def should_proceed_from_ui_check(state: AgentState) -> str:
@@ -749,33 +695,11 @@ Only reply with a polite comment asking for clarification if the issue is litera
     response = llm.invoke(prompt).content.strip()
     
     if response.upper() == "ACTIONABLE":
-        import os
-        from slack_sdk import WebClient
-        
-        slack_token = os.environ.get("SLACK_BOT_TOKEN")
-        slack_channel = os.environ.get("SLACK_CHANNEL_ID")
         task_id = state.get("task_id", "Unknown")
         repo_full_name = state.get("repo_full_name", "Repository")
         
-        if slack_token and slack_channel:
-            try:
-                client = WebClient(token=slack_token)
-                client.chat_postMessage(
-                    channel=slack_channel,
-                    text="Vetting Passed",
-                    blocks=[
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn", 
-                                "text": f"✅ *Vetting Passed for #{task_id}*\nThe issue is actionable! The Principal Architect is now analyzing `{repo_full_name}` to generate the architectural blueprint. This typically takes 2-3 minutes..."
-                            }
-                        }
-                    ]
-                )
-            except Exception as e:
-                print(f"Failed to post Slack notification: {e}")
-                
+        print(f"✅ Vetting Passed for #{task_id}. The Principal Architect is now analyzing `{repo_full_name}` to generate the architectural blueprint...")
+        
         return {"history": ["Issue Vetting: Actionable."]}
     else:
         # Halt and comment on GitHub
