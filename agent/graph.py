@@ -393,15 +393,7 @@ After completing, ensure all acceptance criteria are met."""
     }
     
     opencode_config["mcp"] = {}
-    
-    # Dynamically inject XcodeBuildMCP so the LLM can construct native compilation schemas
-    opencode_config["mcp"]["XcodeBuildMCP"] = {
-        "type": "local",
-        "command": ["npx", "-y", "xcodebuildmcp"],
-        "enabled": True
-    }
-    print("🛠️ Architect Coder natively mounting XcodeBuildMCP into OpenCode sandbox...")
-    
+
     if has_figma_link and os.environ.get("FIGMA_ACCESS_TOKEN"):
         opencode_config["mcp"]["FigmaMCP"] = {
             "type": "local",

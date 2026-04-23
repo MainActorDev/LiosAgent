@@ -68,10 +68,8 @@ class MCPManager:
         elif not uvx_path:
             print("ℹ️ SerenaMCP skipped: `uvx` not found. Install with: curl -LsSf https://astral.sh/uv/install.sh | sh")
             
-        # --- XcodeBuildMCP, Figma, Jira (planner mode only) ---
+        # --- Figma, Jira (planner mode only) ---
         if mode == "planner":
-            server_configs.append(("XcodeBuildMCP", "npx", ["-y", "xcodebuildmcp@latest", "mcp"]))
-            
             instructions_lower = instructions.lower()
             has_jira_link = "atlassian.net" in instructions_lower or "jira" in instructions_lower
             
