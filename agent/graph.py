@@ -3,8 +3,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, END
 
-# GLOBALLY persist LangGraph thread memory across the FastAPI lifecycle
-GLOBAL_CHECKPOINTER = MemorySaver()
+# Checkpointers are now injected dynamically per-vault
 
 from agent.state import AgentState
 from agent.tools import clone_isolated_workspace, post_github_comment, capture_simulator_screenshot, validate_ui_with_vision, fetch_external_link, navigate_to_target_view
@@ -175,9 +174,19 @@ Return a structured markdown report of your findings."""
         agent_skills = "No specific rules found. Follow standard iOS best practices."
     context_data = "\n\n".join(context_parts) if context_parts else "No context gathered."
     
+    # --- Ralph Integration: Read cross-task progress log ---
+    progress_log = ""
+    if workspace_path:
+        from agent.tools import read_progress_log
+        progress_log = read_progress_log(workspace_path)
+        if progress_log:
+            context_parts.append(f"## Prior Run Learnings (progress.txt)\n{progress_log[-3000:]}")
+            print(f"📖 Loaded {len(progress_log)} chars of cross-task learnings from progress.txt")
+    
     return {
         "mcp_context": context_data,
         "agent_skills": agent_skills,
+        "progress_log": progress_log,
         "history": ["Context Aggregator Node executed. Serena onboarding + external tools queried."]
     }
 
@@ -241,6 +250,11 @@ If this is a coding task, you MUST mandate TDD by defining the Swift Testing (`i
             files_to_test=[],
             architecture_components=[]
         )
+    
+    from agent.vault_manager import VaultManager
+    epic_name = state.get("task_id", "default_epic")
+    vault_path = VaultManager.create_epic_vault(epic_name)
+    VaultManager.save_blueprint(vault_path, blueprint.dict())
     
     return {
         "blueprint": blueprint.dict(),
@@ -331,6 +345,23 @@ IMPORTANT RULES:
 Before generating code, use your native file-reading tools to investigate any skill files that seem relevant to your current architectural task. Treat their isolated contents as absolute directives.
 Solve the task completely, adhering to the design patterns and rules defined above.
 Ensure you fulfill every aspect of the blueprint."""
+    
+    # --- Ralph Integration: Focus on current story if PRD exists ---
+    prd_stories = state.get("prd_stories", [])
+    if prd_stories:
+        from agent.ralph import get_current_story
+        current_story = get_current_story(prd_stories)
+        if current_story:
+            prompt += f"""\n\n📋 CURRENT STORY (focus on THIS only):
+Story ID: {current_story['id']}
+Title: {current_story['title']}
+Description: {current_story['description']}
+Acceptance Criteria:
+{chr(10).join(f'  - {c}' for c in current_story.get('acceptance_criteria', []))}
+Notes: {current_story.get('notes', 'None')}
+
+IMPORTANT: Implement ONLY this story. Do not work on other stories.
+After completing, ensure all acceptance criteria are met."""
     
     instructions_lower = state.get('instructions', '').lower()
     has_figma_link = "figma.com" in instructions_lower or "figma" in instructions_lower
@@ -500,10 +531,12 @@ def validator_node(state: AgentState):
         errors = state.get("compiler_errors", [])
         errors.append(build_output)
         retries = state.get("retries_count", 0) + 1
+        story_retries = state.get("story_retries_count", 0) + 1
         return {
             "compiler_errors": errors,  
             "retries_count": retries,
-            "history": [f"Xcode Build Failed. Retry count: {retries}"]
+            "story_retries_count": story_retries,
+            "history": [f"Xcode Build Failed. Retry count: {retries} (Story retries: {story_retries})"]
         }
 
 def maestro_navigation_generator_node(state: AgentState):
@@ -774,11 +807,186 @@ def should_proceed_from_blueprint(state: AgentState) -> str:
     last_history = state.get("history", [""])[-1]
     
     if "approved by human" in last_history:
-        return "architect_coder"
+        return "prd_decomposer"
     elif "Blueprint feedback received" in last_history:
         return "planner"
         
-    return "architect_coder"
+    return "prd_decomposer"
+
+def prd_decomposer_node(state: AgentState):
+    """
+    Ralph Integration: Decomposes the approved FeatureBlueprint into
+    atomic user stories for sequential execution.
+    """
+    from agent.ralph import decompose_blueprint_to_stories, format_stories_for_github
+    
+    blueprint = state.get("blueprint", {})
+    instructions = state.get("instructions", "")
+    mcp_context = state.get("mcp_context", "")
+    progress_log = state.get("progress_log", "")
+    
+    print("📋 Decomposing blueprint into atomic user stories (Ralph PRD)...")
+    stories = decompose_blueprint_to_stories(
+        blueprint, instructions, mcp_context, progress_log
+    )
+    
+    print(f"📋 Generated {len(stories)} user stories:")
+    from agent.vault_manager import VaultManager
+    epic_name = state.get("task_id", "default_epic")
+    
+    for s in stories:
+        print(f"  → {s['id']}: {s['title']} (priority: {s['priority']})")
+        # Physically generate the Story Vault
+        story_path = VaultManager.create_story_vault(epic_name, s["id"])
+        with open(os.path.join(story_path, "story_plan.md"), "w") as f:
+            f.write(f"# {s['id']}: {s['title']}\n\n{s['description']}\n\n## Acceptance Criteria\n")
+            for c in s.get("acceptance_criteria", []):
+                f.write(f"- [ ] {c}\n")
+            if s.get("notes"):
+                f.write(f"\n## Notes\n{s['notes']}")
+
+    
+    # Post the decomposition to GitHub for visibility
+    repo_full_name = state.get("repo_full_name")
+    task_id = state.get("task_id")
+    installation_id = state.get("installation_id")
+    
+    if repo_full_name and installation_id:
+        from agent.tools import post_github_comment
+        feature_name = blueprint.get("feature_name", "Feature")
+        md = format_stories_for_github(stories, feature_name)
+        post_github_comment(repo_full_name, task_id, installation_id, md)
+    
+    return {
+        "prd_stories": stories,
+        "current_story_index": 0,
+        "history": [f"PRD Decomposition complete: {len(stories)} stories generated."]
+    }
+
+def story_selector_node(state: AgentState):
+    """Pick the next pending story from the PRD, or signal completion."""
+    from agent.ralph import get_current_story
+    
+    stories = state.get("prd_stories", [])
+    current_story = get_current_story(stories)
+    
+    if current_story:
+        print(f"📖 Next story: {current_story['id']} - {current_story['title']}")
+        return {
+            "current_story_id": current_story["id"],
+            "story_retries_count": 0,   # Reset per-story retry counter
+            "compiler_errors": [],       # Clear errors from previous story
+            "history": [f"Story selector: picked {current_story['id']} - {current_story['title']}"]
+        }
+    else:
+        completed = state.get("completed_story_ids", [])
+        skipped = state.get("skipped_story_ids", [])
+        print(f"🎉 All stories processed! Completed: {len(completed)}, Skipped: {len(skipped)}")
+        return {
+            "current_story_id": "",
+            "history": [f"All stories processed. {len(completed)} completed, {len(skipped)} skipped."]
+        }
+
+def story_commit_node(state: AgentState):
+    """Commit the current story's changes after a successful build."""
+    from agent.tools import commit_story
+    from agent.ralph import mark_story_passed
+    
+    workspace_path = state.get("workspace_path")
+    stories = state.get("prd_stories", [])
+    story_id = state.get("current_story_id", "")
+    
+    # Find the current story
+    current_story = next((s for s in stories if s["id"] == story_id), None)
+    if not current_story:
+        return {"history": [f"Story commit: story {story_id} not found in PRD."]}
+    
+    result = commit_story(workspace_path, current_story)
+    print(f"  📦 {result}")
+    
+    # Mark story as passed
+    updated_stories = mark_story_passed(stories, story_id)
+    completed = state.get("completed_story_ids", [])
+    completed.append(story_id)
+    
+    return {
+        "prd_stories": updated_stories,
+        "completed_story_ids": completed,
+        "history": [f"Story {story_id} committed: {result}"]
+    }
+
+def story_progress_node(state: AgentState):
+    """Append progress.txt entry for the completed story."""
+    from agent.tools import append_story_progress
+    
+    workspace_path = state.get("workspace_path")
+    stories = state.get("prd_stories", [])
+    story_id = state.get("current_story_id", "")
+    
+    current_story = next((s for s in stories if s["id"] == story_id), None)
+    if current_story:
+        append_story_progress(workspace_path, current_story, success=True)
+    
+    return {"history": [f"Progress logged for story {story_id}."]}
+
+def story_skip_node(state: AgentState):
+    """Skip a story that failed too many times, log it, and move on."""
+    from agent.tools import append_story_progress
+    
+    workspace_path = state.get("workspace_path")
+    stories = state.get("prd_stories", [])
+    story_id = state.get("current_story_id", "")
+    
+    current_story = next((s for s in stories if s["id"] == story_id), None)
+    
+    # Log the failure
+    if current_story:
+        build_errors = state.get("compiler_errors", [])
+        last_error = build_errors[-1] if build_errors else ""
+        append_story_progress(workspace_path, current_story, success=False, 
+                             build_output=last_error)
+        current_story["notes"] = f"SKIPPED after 3 retries. Last error: {last_error[-200:]}"
+    
+    skipped = state.get("skipped_story_ids", [])
+    skipped.append(story_id)
+    
+    # Git rollback: discard uncommitted changes from the failed story
+    import subprocess
+    subprocess.run(["git", "checkout", "--", "."], cwd=workspace_path, 
+                   check=False, capture_output=True)
+    subprocess.run(["git", "clean", "-fd"], cwd=workspace_path, 
+                   check=False, capture_output=True)
+    
+    print(f"  ⏭️ Skipped story {story_id} after 3 failed attempts.")
+    
+    return {
+        "prd_stories": stories,
+        "skipped_story_ids": skipped,
+        "story_retries_count": 0,
+        "compiler_errors": [],
+        "history": [f"Story {story_id} SKIPPED after max retries. Rolled back uncommitted changes."]
+    }
+
+def should_retry_story(state: AgentState) -> str:
+    """Per-story retry logic. Replaces the global should_retry."""
+    last_history = state.get("history", [""])[-1]
+    
+    # Build succeeded → commit this story
+    if "PASSED" in last_history:
+        return "story_commit"
+    
+    # Per-story retry limit
+    if state.get("story_retries_count", 0) >= 3:
+        return "story_skip"
+    
+    # Retry: send back to coder with error context
+    return "coder"
+
+def should_continue_stories(state: AgentState) -> str:
+    """After story_selector picks a story, route based on whether there's work left."""
+    if state.get("current_story_id"):
+        return "architect_coder"
+    return "ui_check"
 
 def build_graph(checkpointer=None):
     """Compiles the LangGraph State Machine."""
@@ -791,6 +999,11 @@ def build_graph(checkpointer=None):
     graph.add_node("planner", planner_node)
     graph.add_node("blueprint_presentation", blueprint_presentation_node)
     graph.add_node("blueprint_approval_gate", blueprint_approval_gate)
+    graph.add_node("prd_decomposer", prd_decomposer_node)
+    graph.add_node("story_selector", story_selector_node)
+    graph.add_node("story_commit", story_commit_node)
+    graph.add_node("story_progress", story_progress_node)
+    graph.add_node("story_skip", story_skip_node)
     graph.add_node("architect_coder", architect_coder_node)
     graph.add_node("validator", validator_node)
     graph.add_node("ui_vision_check", ui_vision_validator_node)        # Stage 1: Boot, build, capture initial screenshot
@@ -858,6 +1071,20 @@ def build_graph(checkpointer=None):
         # If the push successfully merged to the cloud, there is no reason to hoard 300MB of local Xcode/SPM build caches.
         # But if it failed, we MUST leave it on disk for the human engineer to `cd` into and forensically investigate.
         if "ERROR" not in push_msg and "SKIPPED" not in push_msg:
+            # --- Ralph Integration: Write learnings to progress.txt + AGENTS.md ---
+            from agent.tools import write_progress_log
+            try:
+                write_progress_log(
+                    workspace_path, 
+                    task_id, 
+                    state.get("instructions", ""),
+                    state.get("blueprint", {}),
+                    state.get("history", [])
+                )
+                print("📝 Progress log and AGENTS.md updated with learnings.")
+            except Exception as e:
+                print(f"⚠️ Progress log write failed (non-fatal): {e}")
+
             import shutil
             import os
             try:
@@ -895,20 +1122,38 @@ def build_graph(checkpointer=None):
     # Dynamically route: either loop back to planner with feedback, or proceed to execution
     graph.add_conditional_edges("blueprint_approval_gate", should_proceed_from_blueprint, {
         "planner": "planner",
-        "architect_coder": "architect_coder"
+        "prd_decomposer": "prd_decomposer"
     })
     
-    # After architecture completes, validate the code
+    # --- Phase 3: Ralph Loop Edges ---
+    
+    # PRD decomposer feeds into story selector
+    graph.add_edge("prd_decomposer", "story_selector")
+    
+    # Story selector: either pick a story to work on, or all done → UI check
+    graph.add_conditional_edges("story_selector", should_continue_stories, {
+        "architect_coder": "architect_coder",
+        "ui_check": "ui_vision_check"
+    })
+    
+    # Coder → Validator
     graph.add_edge("architect_coder", "validator")
     
-    # Conditional logic out of the validator (loops back to architect_coder on failure)
-    graph.add_conditional_edges("validator", should_retry, {
-        "coder": "architect_coder",           # Loop back through OpenCode for targeted fixes
-        "ui_check": "ui_vision_check",         # Build passed → boot sim & capture initial screenshot
-        "push": "push"                        # Build perfectly failed multiple times → skip to halt
+    # Validator: per-story retry or commit
+    graph.add_conditional_edges("validator", should_retry_story, {
+        "coder": "architect_coder",
+        "story_commit": "story_commit",
+        "story_skip": "story_skip"
     })
     
-    # Pipeline: capture → navigate → validate → push
+    # After commit: log progress, then loop back to story selector
+    graph.add_edge("story_commit", "story_progress")
+    graph.add_edge("story_progress", "story_selector")
+    
+    # After skip: loop back to story selector for next story
+    graph.add_edge("story_skip", "story_selector")
+    
+    # --- Post-loop: UI Vision Pipeline ---
     graph.add_edge("ui_vision_check", "maestro_navigation_generator")
     graph.add_edge("maestro_navigation_generator", "vision_validation")
     

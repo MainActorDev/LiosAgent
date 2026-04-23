@@ -48,9 +48,16 @@ def execute(
         console.print(f"[bold red]Error:[/bold red] Vault path '{vault_path}' does not exist.")
         raise typer.Exit(code=1)
         
+    from agent.vault_manager import VaultManager
+    from agent.graph import build_graph
+    import asyncio
+    
+    checkpointer = VaultManager.get_checkpointer(vault_path)
+    graph_app = build_graph(checkpointer=checkpointer)
+    
     console.print(Panel.fit(f"[bold green]Executing Vault:[/bold green] [yellow]{vault_path}[/yellow]", border_style="green"))
     console.print("[dim]This command will eventually trigger the LangGraph Coder/Validator loop...[/dim]")
-    # TODO: Load VaultSaver, load state, and invoke LangGraph
+    # TODO: Implement the asyncio.run() loop and REPL yielding
 
 if __name__ == "__main__":
     app()
