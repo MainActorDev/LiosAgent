@@ -3,7 +3,18 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 import asyncio
+import os
 from dotenv import load_dotenv
+
+# 1. Load global defaults (from Lios-Agent installation directory)
+global_env = os.path.join(os.path.dirname(__file__), ".env")
+if os.path.exists(global_env):
+    load_dotenv(global_env)
+
+# 2. Load local overrides (from user's Current Working Directory)
+local_env = os.path.join(os.getcwd(), ".env")
+if os.path.exists(local_env):
+    load_dotenv(local_env, override=True)
 
 from agent.repl import UniversalREPL
 

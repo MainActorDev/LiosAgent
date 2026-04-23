@@ -2,7 +2,14 @@
 # Lios-Agent CLI Wrapper
 # This automatically activates the virtual environment and passes arguments to cli.py
 
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# Resolve the absolute path to this script, even if it's a symlink in /usr/local/bin
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+  DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
 
 # Ensure venv exists
 if [ ! -d "$DIR/venv" ]; then
@@ -11,4 +18,5 @@ if [ ! -d "$DIR/venv" ]; then
 fi
 
 source "$DIR/venv/bin/activate"
-python "$DIR/cli.py" "$@"
+"$DIR/venv/bin/python3" "$DIR/cli.py" "$@"
+

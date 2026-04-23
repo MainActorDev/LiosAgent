@@ -4,7 +4,8 @@ import json
 import sqlite3
 from langgraph.checkpoint.sqlite import SqliteSaver
 
-VAULTS_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".lios", "epics"))
+# Resolves from the Current Working Directory where `lios` was executed
+VAULTS_ROOT = os.path.abspath(os.path.join(os.getcwd(), ".lios", "epics"))
 
 class VaultManager:
     """
