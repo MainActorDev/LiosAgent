@@ -1,9 +1,0 @@
-{
-    "mcp": {
-        "serena": {
-            "type": "local",
-            "command": "uvx",
-            "args": ["hello"]
-        }
-    }
-}

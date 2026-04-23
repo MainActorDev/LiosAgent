@@ -99,97 +99,101 @@ def execute(
     from agent.graph import build_graph
     import asyncio
     
-    checkpointer = VaultManager.get_checkpointer(vault_path)
-    graph_app = build_graph(checkpointer=checkpointer)
-    
     console.print(Panel.fit(f"[bold green]Executing Vault:[/bold green] [yellow]{vault_path}[/yellow]", border_style="green"))
     
     # Derive epic_name from the vault path (assuming .lios/epics/<epic_name>)
     epic_name = os.path.basename(os.path.normpath(vault_path))
-    
-    # Start the synchronous execution loop
-    def run_graph():
-        config = {"configurable": {"thread_id": epic_name}}
+
+    # Start the async execution loop
+    async def run_graph():
+        db_path = os.path.join(vault_path, ".state.db")
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
         
-        # Load initial instructions from the vault's state.yml if this is the first run
-        import yaml
-        state_yml_path = os.path.join(vault_path, "state.yml")
-        initial_state = None
-        
-        # Check if LangGraph already has state for this thread
-        current_state = graph_app.get_state(config)
-        if not current_state or not current_state.values:
-            if os.path.exists(state_yml_path):
-                with open(state_yml_path, "r") as f:
-                    initial_state = yaml.safe_load(f)
-            else:
-                console.print("[bold red]No state.yml found. Did you run `lios init epic` first?[/bold red]")
-                return
-                
-        # Main Execution Loop
-        while True:
-            try:
-                # If we have initial state and haven't started, pass it. Otherwise pass None to resume.
-                input_state = initial_state if (not current_state or not current_state.values) else None
-                
-                graph_app.invoke(input_state, config=config)
-                
-                # After invoke completes or yields, check the state
-                current_state = graph_app.get_state(config)
-                
-                # Dump human readable state to vault
-                if current_state and current_state.values:
-                    VaultManager.dump_human_readable_state(vault_path, current_state.values)
-                
-                if not current_state.next:
-                    console.print("\n[bold green]🎉 Workflow Completed![/bold green]")
-                    break
+        async with AsyncSqliteSaver.from_conn_string(db_path) as checkpointer:
+            await checkpointer.setup()
+            graph_app = build_graph(checkpointer=checkpointer)
+            
+            config = {"configurable": {"thread_id": epic_name}}
+            
+            # Load initial instructions from the vault's state.yml if this is the first run
+            import yaml
+            state_yml_path = os.path.join(vault_path, "state.yml")
+            initial_state = None
+            
+            # Check if LangGraph already has state for this thread
+            current_state = await graph_app.aget_state(config)
+            if not current_state or not current_state.values:
+                if os.path.exists(state_yml_path):
+                    with open(state_yml_path, "r") as f:
+                        initial_state = yaml.safe_load(f)
+                else:
+                    console.print("[bold red]No state.yml found. Did you run `lios init epic` first?[/bold red]")
+                    return
                     
-                # Handle Interrupts (Human in the loop)
-                next_node = current_state.next[0]
-                
-                if next_node == "blueprint_approval_gate":
-                    UniversalREPL.print_agent_message("The Architectural Blueprint has been generated. Please review `blueprint.md` in your vault.\nType **Approve** to begin coding, or provide feedback to regenerate the blueprint.")
-                    feedback = UniversalREPL.single_prompt()
+            # Main Execution Loop
+            while True:
+                try:
+                    # If we have initial state and haven't started, pass it. Otherwise pass None to resume.
+                    input_state = initial_state if (not current_state or not current_state.values) else None
                     
-                    if "approve" in feedback.lower():
-                        graph_app.update_state(config, {"history": ["Blueprint approved by human, proceeding..."]})
-                    else:
-                        old_instructions = current_state.values.get("instructions", "")
-                        new_instructions = old_instructions + f"\n\n[Blueprint Feedback]:\n{feedback}"
-                        graph_app.update_state(config, {
-                            "instructions": new_instructions, 
-                            "history": ["Feedback received. Regenerating architecture plan."]
-                        })
-                
-                elif next_node == "await_clarification":
-                    UniversalREPL.print_agent_message("I am stuck and need clarification or human intervention.")
-                    feedback = UniversalREPL.single_prompt()
-                    old_instructions = current_state.values.get("instructions", "")
-                    new_instructions = old_instructions + f"\n\n[Developer Clarification]:\n{feedback}"
-                    graph_app.update_state(config, {
-                        "instructions": new_instructions,
-                        "halted": False,
-                        "compiler_errors": []
-                    })
-                
-                elif next_node == "push":
-                    UniversalREPL.print_agent_message("Validation complete or aborted. Ready to push to GitHub?")
-                    feedback = UniversalREPL.single_prompt("Push? [y/N]")
-                    if "y" in feedback.lower():
-                        # Let it proceed to push
-                        pass
-                    else:
-                        console.print("[yellow]Push aborted. Halting.[/yellow]")
+                    await graph_app.ainvoke(input_state, config=config)
+                    
+                    # After invoke completes or yields, check the state
+                    current_state = await graph_app.aget_state(config)
+                    
+                    # Dump human readable state to vault
+                    if current_state and current_state.values:
+                        VaultManager.dump_human_readable_state(vault_path, current_state.values)
+                    
+                    if not current_state.next:
+                        console.print("\n[bold green]🎉 Workflow Completed![/bold green]")
                         break
                         
-            except Exception as e:
-                console.print(f"\n[bold red]Fatal Graph Error:[/bold red] {e}")
-                import traceback
-                traceback.print_exc()
-                break
+                    # Handle Interrupts (Human in the loop)
+                    next_node = current_state.next[0]
+                    
+                    if next_node == "blueprint_approval_gate":
+                        UniversalREPL.print_agent_message("The Architectural Blueprint has been generated. Please review `blueprint.md` in your vault.\nType **Approve** to begin coding, or provide feedback to regenerate the blueprint.")
+                        feedback = UniversalREPL.single_prompt()
+                        
+                        if "approve" in feedback.lower():
+                            await graph_app.aupdate_state(config, {"history": ["Blueprint approved by human, proceeding..."]})
+                        else:
+                            old_instructions = current_state.values.get("instructions", "")
+                            new_instructions = old_instructions + f"\n\n[Blueprint Feedback]:\n{feedback}"
+                            await graph_app.aupdate_state(config, {
+                                "instructions": new_instructions, 
+                                "history": ["Feedback received. Regenerating architecture plan."]
+                            })
+                    
+                    elif next_node == "await_clarification":
+                        UniversalREPL.print_agent_message("I am stuck and need clarification or human intervention.")
+                        feedback = UniversalREPL.single_prompt()
+                        old_instructions = current_state.values.get("instructions", "")
+                        new_instructions = old_instructions + f"\n\n[Developer Clarification]:\n{feedback}"
+                        await graph_app.aupdate_state(config, {
+                            "instructions": new_instructions,
+                            "halted": False,
+                            "compiler_errors": []
+                        })
+                    
+                    elif next_node == "push":
+                        UniversalREPL.print_agent_message("Validation complete or aborted. Ready to push to GitHub?")
+                        feedback = UniversalREPL.single_prompt("Push? [y/N]")
+                        if "y" in feedback.lower():
+                            # Let it proceed to push
+                            pass
+                        else:
+                            console.print("[yellow]Push aborted. Halting.[/yellow]")
+                            break
+                            
+                except Exception as e:
+                    console.print(f"\n[bold red]Fatal Graph Error:[/bold red] {e}")
+                    import traceback
+                    traceback.print_exc()
+                    break
 
-    run_graph()
+    asyncio.run(run_graph())
 
 if __name__ == "__main__":
     app()

@@ -1,0 +1,16 @@
+history: []
+instructions: 'User: I want to build a simple to do app
+
+
+  Agent: Great, a to-do app is a classic but nuanced project! To help me understand
+  the core scope of what you want to build:
+
+
+  1. What are the essential features you need for this initial version? (e.g., just
+  adding and completing tasks, or do you also need things like due dates, categories/folders,
+  or push notifications?)
+
+  2. Do you expect the tasks to sync across a user''s devices (like via iCloud), or
+  is this strictly a local, offline-only app for now?'
+retries_count: 0
+task_id: test-interactive

@@ -27,3 +27,16 @@ class AgentState(TypedDict):
     device_udid: str            # The active iOS Simulator UDID used for Maestro navigation
     bundle_id: str              # The app's CFBundleIdentifier for Maestro interactions
     halted: bool                # Indicates if the workflow paused due to a fatal error/rollback
+    
+    # Ralph Integration (Phase 1: Cross-task learning)
+    progress_log: str           # Accumulated learnings from previous runs (read from .lios-agent/progress.txt)
+    
+    # Ralph Integration (Phase 2: PRD decomposition)
+    prd_stories: list           # Ralph-style user stories decomposed from the blueprint
+    current_story_index: int    # Index of the currently executing story
+    
+    # Ralph Integration (Phase 3: Multi-story execution loop)
+    current_story_id: str       # ID of the story currently being worked on (e.g., "US-002")
+    story_retries_count: int    # Per-story retry counter (resets between stories)
+    completed_story_ids: list   # IDs of stories that have been committed
+    skipped_story_ids: list     # IDs of stories that failed and were skipped
