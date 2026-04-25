@@ -134,17 +134,9 @@ def execute(
                     
             # Main Execution Loop
             while True:
-                # Determine current node based on vault_manager state
-                # If state not found, default to "Thinking"
-                try:
-                    with open(state_yml_path, "r") as f:
-                        state_yaml = yaml.safe_load(f)
-                        current_node = state_yaml.get("current_node", "Thinking") if state_yaml else "Thinking"
-                except Exception:
-                    current_node = "Thinking"
+                current_node = current_state.next[0] if current_state and current_state.next else "Initialization"
 
-                # Use console.status which might not support transient=True in all versions
-                with console.status(f"[bold cyan]Agent is {current_node}...[/bold cyan]", spinner="dots") as status:
+                with console.status(f"[bold cyan]Running {current_node}...[/bold cyan]", spinner="dots"):
                     try:
                         input_state = initial_state if (not current_state or not current_state.values) else None
 
@@ -160,7 +152,6 @@ def execute(
                         traceback.print_exc()
                         break
 
-                # After node completes, print a clean summary line
                 console.print(f"[dim]✓ Completed {current_node}[/dim]")
 
                 if not current_state.next:
@@ -169,7 +160,7 @@ def execute(
 
                 next_node = current_state.next[0]
 
-                    if next_node == "blueprint_approval_gate":
+                if next_node == "blueprint_approval_gate":
                         UniversalREPL.print_agent_message("The Architectural Blueprint has been generated. Please review `blueprint.md` in your vault.\nType **Approve** to begin coding, or provide feedback to regenerate the blueprint.")
                         feedback = UniversalREPL.single_prompt()
                         
@@ -183,7 +174,7 @@ def execute(
                                 "history": ["Feedback received. Regenerating architecture plan."]
                             })
                     
-                    elif next_node == "await_clarification":
+                elif next_node == "await_clarification":
                         UniversalREPL.print_agent_message("I am stuck and need clarification or human intervention.")
                         feedback = UniversalREPL.single_prompt()
                         old_instructions = current_state.values.get("instructions", "")
@@ -194,7 +185,7 @@ def execute(
                             "compiler_errors": []
                         })
                     
-                    elif next_node == "push":
+                elif next_node == "push":
                         UniversalREPL.print_agent_message("Validation complete or aborted. Ready to push to GitHub?")
                         feedback = UniversalREPL.single_prompt("Push? [y/N]")
                         if "y" in feedback.lower():

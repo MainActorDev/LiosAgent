@@ -66,7 +66,11 @@ class UniversalREPL:
                 if user_input.strip() == "/rollback":
                     console.print("[bold red]Rollback not yet implemented.[/bold red]")
                     continue
-                
+
+                if user_input.strip() == "/board":
+                    console.print(Panel("[bold green]Trello integration coming soon![/bold green]\n\nFetching tasks from your remote board...", title="[bold blue]/board[/bold blue]"))
+                    continue
+
                 parsed_input = UniversalREPL.parse_input(user_input, workspace_root)
                 return parsed_input
                 
