@@ -54,7 +54,23 @@ else
     echo "✅ opencode-ai is already installed."
 fi
 
-# Step 4: Finalize and Symlink
+# Step 4: Automate Maestro CLI Installation
+echo "📱 Checking Maestro CLI..."
+MAESTRO_BIN="$HOME/.maestro/bin/maestro"
+if ! command -v maestro &> /dev/null && [ ! -f "$MAESTRO_BIN" ]; then
+    echo "📦 Installing Maestro CLI via curl..."
+    curl -Ls "https://get.maestro.mobile.dev" | bash
+    
+    # Check if we need to remind the user to add it to their PATH
+    if [[ ":$PATH:" != *":$HOME/.maestro/bin:"* ]]; then
+        echo "⚠️  Maestro installed, but you may need to add it to your PATH."
+        echo "💡 Add 'export PATH=\"\$PATH:\$HOME/.maestro/bin\"' to your ~/.zshrc or ~/.bash_profile"
+    fi
+else
+    echo "✅ Maestro CLI is already installed."
+fi
+
+# Step 5: Finalize and Symlink
 echo "🔗 Setting up global CLI access..."
 
 # Ensure the lios wrapper is executable
