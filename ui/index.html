@@ -1,0 +1,1869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lios Agent CLI - UI Prototype</title>
+
+  <!-- Design System: JetBrains Mono + IBM Plex Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ================================================================
+       DESIGN SYSTEM TOKENS
+       ================================================================ */
+    :root {
+      --bg-deep:       #0B1120;
+      --bg-primary:    #0F172A;
+      --bg-surface:    #1E293B;
+      --bg-elevated:   #334155;
+      --accent-green:  #22C55E;
+      --accent-cyan:   #06B6D4;
+      --accent-purple: #A78BFA;
+      --accent-amber:  #F59E0B;
+      --accent-red:    #EF4444;
+      --text-primary:  #F8FAFC;
+      --text-secondary:#94A3B8;
+      --text-muted:    #64748B;
+      --border-subtle: #1E293B;
+      --border-active: #334155;
+
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      --font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+
+      --transition-fast: 150ms ease;
+      --transition-normal: 250ms ease;
+
+      --sidebar-width: 280px;
+    }
+
+    /* ================================================================
+       RESET & BASE
+       ================================================================ */
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      font-size: 14px;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    body {
+      font-family: var(--font-mono);
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+
+    /* ================================================================
+       APP SHELL (window chrome wrapping sidebar + terminal)
+       ================================================================ */
+    .app-shell {
+      width: 100%;
+      max-width: 1200px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,0.03),
+        0 20px 60px -12px rgba(0,0,0,0.5),
+        0 0 80px -20px rgba(34,197,94,0.08);
+      display: flex;
+      flex-direction: column;
+      height: 720px;
+    }
+
+    /* Title bar (shared across sidebar + terminal) */
+    .terminal-titlebar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+      user-select: none;
+      flex-shrink: 0;
+    }
+
+    .terminal-dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .terminal-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    .terminal-dot--red    { background: #EF4444; }
+    .terminal-dot--yellow { background: #F59E0B; }
+    .terminal-dot--green  { background: #22C55E; }
+
+    .terminal-title {
+      flex: 1;
+      text-align: center;
+      font-family: var(--font-sans);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-muted);
+      letter-spacing: 0.02em;
+    }
+
+    .titlebar-spacer {
+      width: 54px;
+    }
+
+    /* ================================================================
+       MAIN LAYOUT (sidebar + terminal side by side)
+       ================================================================ */
+    .app-layout {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* ================================================================
+       SIDEBAR
+       ================================================================ */
+    .sidebar {
+      width: var(--sidebar-width);
+      min-width: var(--sidebar-width);
+      background: var(--bg-deep);
+      border-right: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: width var(--transition-normal), min-width var(--transition-normal), opacity var(--transition-normal);
+    }
+
+    .sidebar.collapsed {
+      width: 0;
+      min-width: 0;
+      opacity: 0;
+      border-right: none;
+    }
+
+    /* Sidebar header with toggle + new chat */
+    .sidebar-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border-subtle);
+      flex-shrink: 0;
+    }
+
+    .sidebar-header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .sidebar-brand {
+      font-family: var(--font-sans);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+    }
+
+    .sidebar-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all var(--transition-fast);
+      flex-shrink: 0;
+    }
+
+    .sidebar-btn:hover {
+      background: var(--bg-surface);
+      border-color: var(--border-active);
+      color: var(--text-secondary);
+    }
+
+    .sidebar-btn svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    /* Sidebar search */
+    .sidebar-search {
+      padding: 10px 14px;
+      flex-shrink: 0;
+    }
+
+    .sidebar-search-input {
+      width: 100%;
+      padding: 7px 10px 7px 32px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      font-family: var(--font-sans);
+      font-size: 12px;
+      color: var(--text-primary);
+      outline: none;
+      transition: border-color var(--transition-fast);
+    }
+
+    .sidebar-search-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .sidebar-search-input:focus {
+      border-color: var(--accent-purple);
+    }
+
+    .sidebar-search-wrap {
+      position: relative;
+    }
+
+    .sidebar-search-icon {
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 14px;
+      height: 14px;
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+
+    /* Sidebar scrollable content */
+    .sidebar-content {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    .sidebar-content::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .sidebar-content::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .sidebar-content::-webkit-scrollbar-thumb {
+      background: var(--bg-elevated);
+      border-radius: 2px;
+    }
+
+    /* ================================================================
+       ACCORDION SECTIONS
+       ================================================================ */
+    .accordion-section {
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .accordion-section:last-child {
+      border-bottom: none;
+    }
+
+    .accordion-trigger {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 10px 14px;
+      background: transparent;
+      border: none;
+      font-family: var(--font-sans);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      cursor: pointer;
+      transition: color var(--transition-fast);
+      user-select: none;
+    }
+
+    .accordion-trigger:hover {
+      color: var(--text-secondary);
+    }
+
+    .accordion-trigger svg {
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+      transition: transform var(--transition-fast);
+    }
+
+    .accordion-trigger[aria-expanded="true"] svg {
+      transform: rotate(90deg);
+    }
+
+    .accordion-trigger-count {
+      margin-left: auto;
+      font-weight: 400;
+      font-size: 10px;
+      color: var(--text-muted);
+      background: var(--bg-surface);
+      padding: 1px 6px;
+      border-radius: 10px;
+    }
+
+    .accordion-body {
+      overflow: hidden;
+      transition: max-height var(--transition-normal);
+    }
+
+    .accordion-body[aria-hidden="true"] {
+      max-height: 0 !important;
+    }
+
+    /* ================================================================
+       SECTION: CONVERSATIONS
+       ================================================================ */
+    .conv-list {
+      padding: 4px 8px 8px;
+    }
+
+    .conv-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: background var(--transition-fast);
+      position: relative;
+    }
+
+    .conv-item:hover {
+      background: var(--bg-surface);
+    }
+
+    .conv-item--active {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-active);
+    }
+
+    .conv-item--active::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 8px;
+      bottom: 8px;
+      width: 2px;
+      background: var(--accent-green);
+      border-radius: 1px;
+    }
+
+    .conv-icon {
+      width: 16px;
+      height: 16px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .conv-item--active .conv-icon {
+      color: var(--accent-green);
+    }
+
+    .conv-meta {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .conv-title {
+      font-family: var(--font-sans);
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.4;
+    }
+
+    .conv-item--active .conv-title {
+      color: var(--text-primary);
+    }
+
+    .conv-subtitle {
+      font-family: var(--font-sans);
+      font-size: 11px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 2px;
+    }
+
+    .conv-time {
+      font-family: var(--font-sans);
+      font-size: 10px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+      margin-top: 3px;
+    }
+
+    /* ================================================================
+       SECTION: FILES
+       ================================================================ */
+    .file-tree {
+      padding: 4px 8px 8px;
+    }
+
+    .file-tree-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 8px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: background var(--transition-fast);
+      user-select: none;
+    }
+
+    .file-tree-item:hover {
+      background: var(--bg-surface);
+      color: var(--text-primary);
+    }
+
+    .file-tree-item svg {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+    }
+
+    .file-tree-item--folder svg {
+      color: var(--accent-amber);
+    }
+
+    .file-tree-item--file svg {
+      color: var(--text-muted);
+    }
+
+    .file-tree-item--file:hover svg {
+      color: var(--accent-cyan);
+    }
+
+    /* Indentation levels */
+    .file-tree-item[data-depth="1"] { padding-left: 22px; }
+    .file-tree-item[data-depth="2"] { padding-left: 36px; }
+    .file-tree-item[data-depth="3"] { padding-left: 50px; }
+
+    .file-tree-item-name {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .file-tree-item-badge {
+      font-family: var(--font-sans);
+      font-size: 9px;
+      font-weight: 600;
+      padding: 1px 5px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      flex-shrink: 0;
+    }
+
+    .file-tree-item-badge--modified {
+      background: rgba(249, 158, 11, 0.15);
+      color: var(--accent-amber);
+    }
+
+    .file-tree-item-badge--new {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--accent-green);
+    }
+
+    /* Folder expand chevron */
+    .folder-chevron {
+      width: 10px;
+      height: 10px;
+      color: var(--text-muted);
+      transition: transform var(--transition-fast);
+      flex-shrink: 0;
+    }
+
+    .file-tree-item--folder.expanded .folder-chevron {
+      transform: rotate(90deg);
+    }
+
+    /* ================================================================
+       SECTION: CONTEXT
+       ================================================================ */
+    .context-panel {
+      padding: 8px 14px 12px;
+    }
+
+    .context-group {
+      margin-bottom: 14px;
+    }
+
+    .context-group:last-child {
+      margin-bottom: 0;
+    }
+
+    .context-group-label {
+      font-family: var(--font-sans);
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 6px;
+    }
+
+    /* Model selector */
+    .context-model {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+    }
+
+    .context-model-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent-green);
+      flex-shrink: 0;
+    }
+
+    .context-model-name {
+      font-family: var(--font-sans);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-primary);
+      flex: 1;
+    }
+
+    .context-model-provider {
+      font-family: var(--font-sans);
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+
+    /* Token usage bar */
+    .context-usage {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .context-usage-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: var(--font-sans);
+      font-size: 11px;
+    }
+
+    .context-usage-label {
+      color: var(--text-muted);
+    }
+
+    .context-usage-value {
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    .context-usage-bar {
+      width: 100%;
+      height: 4px;
+      background: var(--bg-surface);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .context-usage-fill {
+      height: 100%;
+      border-radius: 2px;
+      transition: width var(--transition-normal);
+    }
+
+    .context-usage-fill--tokens {
+      background: var(--accent-cyan);
+      width: 35%;
+    }
+
+    .context-usage-fill--cost {
+      background: var(--accent-amber);
+      width: 12%;
+    }
+
+    /* Attached files list */
+    .context-files {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .context-file-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      background: var(--bg-surface);
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .context-file-item svg {
+      width: 12px;
+      height: 12px;
+      color: var(--accent-cyan);
+      flex-shrink: 0;
+    }
+
+    .context-file-item-name {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .context-file-item-size {
+      font-family: var(--font-sans);
+      font-size: 10px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .context-file-remove {
+      width: 14px;
+      height: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 3px;
+      flex-shrink: 0;
+      transition: all var(--transition-fast);
+    }
+
+    .context-file-remove:hover {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--accent-red);
+    }
+
+    .context-file-remove svg {
+      width: 10px;
+      height: 10px;
+      color: inherit;
+    }
+
+    /* Active tools */
+    .context-tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .context-tool-tag {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      background: var(--bg-surface);
+      border-radius: 4px;
+      font-family: var(--font-sans);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .context-tool-tag svg {
+      width: 11px;
+      height: 11px;
+      color: var(--accent-amber);
+    }
+
+    /* ================================================================
+       SIDEBAR FOOTER
+       ================================================================ */
+    .sidebar-footer {
+      padding: 10px 14px;
+      border-top: 1px solid var(--border-subtle);
+      flex-shrink: 0;
+    }
+
+    .sidebar-footer-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: var(--font-sans);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .sidebar-footer-kbd {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .sidebar-footer-kbd kbd {
+      display: inline-block;
+      padding: 1px 5px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-active);
+      border-radius: 3px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-secondary);
+    }
+
+    /* ================================================================
+       SIDEBAR TOGGLE (visible when collapsed)
+       ================================================================ */
+    .sidebar-toggle-float {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 5;
+      display: none;
+    }
+
+    .sidebar.collapsed ~ .terminal-main .sidebar-toggle-float {
+      display: flex;
+    }
+
+    /* ================================================================
+       TERMINAL MAIN AREA
+       ================================================================ */
+    .terminal-main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      position: relative;
+    }
+
+    .terminal-body {
+      padding: 20px 24px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      flex: 1;
+      overflow-y: auto;
+      min-height: 0;
+    }
+
+    .terminal-body::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .terminal-body::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .terminal-body::-webkit-scrollbar-thumb {
+      background: var(--bg-elevated);
+      border-radius: 3px;
+    }
+
+    /* ================================================================
+       WELCOME BANNER
+       ================================================================ */
+    .welcome {
+      margin-bottom: 20px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .welcome-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .welcome-logo {
+      width: 20px;
+      height: 20px;
+      color: var(--accent-green);
+    }
+
+    .welcome-name {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.02em;
+    }
+
+    .welcome-version {
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--text-muted);
+      margin-left: 4px;
+    }
+
+    .welcome-hint {
+      font-family: var(--font-sans);
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .welcome-hint kbd {
+      display: inline-block;
+      padding: 1px 6px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-active);
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    /* ================================================================
+       CONVERSATION TURNS
+       ================================================================ */
+    .turn {
+      margin-bottom: 20px;
+    }
+
+    /* --- User Turn --- */
+    .turn-user {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .prompt-chevron {
+      color: var(--accent-green);
+      font-weight: 700;
+      font-size: 15px;
+      line-height: 1.6;
+      flex-shrink: 0;
+      user-select: none;
+    }
+
+    .user-input {
+      color: var(--text-primary);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .user-input .mention {
+      color: var(--accent-cyan);
+      font-weight: 500;
+    }
+
+    .user-input .slash-cmd {
+      color: var(--accent-amber);
+      font-weight: 500;
+    }
+
+    /* File attachment indicator */
+    .file-attached {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 4px;
+      margin-left: 22px;
+      font-family: var(--font-sans);
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .file-attached svg {
+      width: 14px;
+      height: 14px;
+      color: var(--text-muted);
+    }
+
+    /* --- Agent Turn --- */
+    .turn-agent {
+      margin-left: 0;
+      padding-left: 22px;
+      border-left: 2px solid var(--bg-elevated);
+    }
+
+    .agent-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    .agent-label-icon {
+      width: 16px;
+      height: 16px;
+      color: var(--accent-purple);
+    }
+
+    .agent-label-text {
+      font-family: var(--font-sans);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent-purple);
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
+    .agent-label-model {
+      font-family: var(--font-sans);
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--text-muted);
+    }
+
+    /* Agent prose */
+    .agent-content {
+      font-family: var(--font-sans);
+      font-size: 13.5px;
+      line-height: 1.7;
+      color: var(--text-secondary);
+    }
+
+    .agent-content p {
+      margin-bottom: 10px;
+    }
+
+    .agent-content p:last-child {
+      margin-bottom: 0;
+    }
+
+    .agent-content strong {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    .agent-content code {
+      display: inline;
+      padding: 2px 6px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-active);
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      color: var(--accent-cyan);
+    }
+
+    /* Code block */
+    .code-block {
+      position: relative;
+      margin: 12px 0;
+      background: var(--bg-deep);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+
+    .code-block-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 14px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .code-block-lang {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .code-block-copy {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      background: transparent;
+      border: 1px solid var(--border-active);
+      border-radius: 4px;
+      font-family: var(--font-sans);
+      font-size: 11px;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all var(--transition-fast);
+    }
+
+    .code-block-copy:hover {
+      background: var(--bg-elevated);
+      color: var(--text-secondary);
+      border-color: var(--text-muted);
+    }
+
+    .code-block-copy svg {
+      width: 12px;
+      height: 12px;
+    }
+
+    .code-block-body {
+      padding: 14px 16px;
+      overflow-x: auto;
+    }
+
+    .code-block-body pre {
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      line-height: 1.65;
+      color: var(--text-secondary);
+      white-space: pre;
+    }
+
+    /* Syntax highlighting tokens */
+    .tok-keyword  { color: var(--accent-purple); }
+    .tok-string   { color: var(--accent-green); }
+    .tok-function { color: #60A5FA; }
+    .tok-comment  { color: var(--text-muted); font-style: italic; }
+    .tok-type     { color: var(--accent-cyan); }
+    .tok-number   { color: var(--accent-amber); }
+    .tok-operator { color: var(--text-secondary); }
+
+    /* ================================================================
+       THINKING / STREAMING STATE
+       ================================================================ */
+    .thinking {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding-left: 22px;
+      margin-bottom: 20px;
+    }
+
+    .thinking-spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--bg-elevated);
+      border-top-color: var(--accent-purple);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .thinking-text {
+      font-family: var(--font-sans);
+      font-size: 13px;
+      color: var(--text-muted);
+      animation: pulse-opacity 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse-opacity {
+      0%, 100% { opacity: 0.5; }
+      50%      { opacity: 1; }
+    }
+
+    /* Streaming cursor */
+    .streaming-cursor {
+      display: inline-block;
+      width: 8px;
+      height: 16px;
+      background: var(--accent-green);
+      margin-left: 2px;
+      vertical-align: text-bottom;
+      animation: blink-cursor 0.8s step-end infinite;
+    }
+
+    @keyframes blink-cursor {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: 0; }
+    }
+
+    /* ================================================================
+       AUTOCOMPLETE POPUP
+       ================================================================ */
+    .autocomplete-wrapper {
+      position: relative;
+      display: inline-block;
+    }
+
+    .autocomplete-popup {
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 0;
+      min-width: 260px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-active);
+      border-radius: var(--radius-md);
+      box-shadow: 0 8px 24px -4px rgba(0,0,0,0.4);
+      overflow: hidden;
+      z-index: 10;
+    }
+
+    .autocomplete-header {
+      padding: 6px 12px;
+      font-family: var(--font-sans);
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-muted);
+      background: var(--bg-primary);
+      border-bottom: 1px solid var(--border-subtle);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .autocomplete-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: background var(--transition-fast);
+    }
+
+    .autocomplete-item:hover,
+    .autocomplete-item--active {
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+    }
+
+    .autocomplete-item svg {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+      color: var(--text-muted);
+    }
+
+    .autocomplete-item--active svg {
+      color: var(--accent-cyan);
+    }
+
+    .autocomplete-item-name {
+      flex: 1;
+    }
+
+    .autocomplete-item-type {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* ================================================================
+       INPUT AREA (bottom)
+       ================================================================ */
+    .input-area {
+      margin-top: auto;
+      padding-top: 12px;
+      border-top: 1px solid var(--border-subtle);
+      flex-shrink: 0;
+    }
+
+    .input-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .input-field {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      color: var(--text-primary);
+      caret-color: var(--accent-green);
+    }
+
+    .input-field::placeholder {
+      color: var(--text-muted);
+    }
+
+    /* Token/cost bar */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0 4px;
+      font-family: var(--font-sans);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .status-bar-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent-green);
+    }
+
+    .status-bar-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* ================================================================
+       TOOL USE INDICATOR
+       ================================================================ */
+    .tool-use {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 8px 0;
+      padding: 8px 12px;
+      background: var(--bg-deep);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      font-family: var(--font-sans);
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .tool-use svg {
+      width: 14px;
+      height: 14px;
+      color: var(--accent-amber);
+      flex-shrink: 0;
+    }
+
+    .tool-use-name {
+      color: var(--accent-amber);
+      font-weight: 500;
+    }
+
+    .tool-use-path {
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    /* ================================================================
+       RESPONSIVE
+       ================================================================ */
+    @media (max-width: 900px) {
+      .sidebar { display: none; }
+      .sidebar-toggle-float { display: none !important; }
+      .app-shell { max-width: 860px; height: auto; min-height: 520px; }
+    }
+
+    @media (max-width: 640px) {
+      body { padding: 0.5rem; }
+      .app-shell { border-radius: 0; }
+      .terminal-body { padding: 12px 14px 10px; }
+      .code-block-body { padding: 10px 12px; }
+    }
+
+    /* ================================================================
+       REDUCED MOTION
+       ================================================================ */
+    @media (prefers-reduced-motion: reduce) {
+      .thinking-spinner { animation: none; border-top-color: var(--accent-purple); }
+      .thinking-text    { animation: none; opacity: 1; }
+      .streaming-cursor { animation: none; opacity: 1; }
+      .sidebar          { transition: none; }
+      .accordion-trigger svg { transition: none; }
+      .folder-chevron   { transition: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-shell">
+  <!-- Title Bar (spans full width) -->
+  <div class="terminal-titlebar">
+    <div class="terminal-dots">
+      <span class="terminal-dot terminal-dot--red"></span>
+      <span class="terminal-dot terminal-dot--yellow"></span>
+      <span class="terminal-dot terminal-dot--green"></span>
+    </div>
+    <span class="terminal-title">Lios Agent &mdash; ~/Developer/project</span>
+    <div class="titlebar-spacer"></div>
+  </div>
+
+  <!-- Main Layout: Sidebar + Terminal -->
+  <div class="app-layout">
+
+    <!-- ============================================================
+         SIDEBAR
+         ============================================================ -->
+    <aside class="sidebar" id="sidebar">
+
+      <!-- Sidebar Header -->
+      <div class="sidebar-header">
+        <div class="sidebar-header-left">
+          <svg style="width:16px;height:16px;color:var(--accent-green)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="4 17 10 11 4 5"></polyline>
+            <line x1="12" y1="19" x2="20" y2="19"></line>
+          </svg>
+          <span class="sidebar-brand">Lios</span>
+        </div>
+        <div style="display:flex;gap:4px;">
+          <!-- New Chat button -->
+          <button class="sidebar-btn" title="New Chat">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+          <!-- Collapse sidebar button -->
+          <button class="sidebar-btn" title="Toggle Sidebar (Ctrl+B)" onclick="toggleSidebar()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="9" y1="3" x2="9" y2="21"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Search -->
+      <div class="sidebar-search">
+        <div class="sidebar-search-wrap">
+          <svg class="sidebar-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input class="sidebar-search-input" type="text" placeholder="Search conversations..." />
+        </div>
+      </div>
+
+      <!-- Scrollable Accordion Content -->
+      <div class="sidebar-content">
+
+        <!-- SECTION: Conversations -->
+        <div class="accordion-section">
+          <button class="accordion-trigger" aria-expanded="true" onclick="toggleAccordion(this)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+            Conversations
+            <span class="accordion-trigger-count">5</span>
+          </button>
+          <div class="accordion-body" aria-hidden="false" style="max-height: 400px;">
+            <div class="conv-list">
+              <!-- Active conversation -->
+              <div class="conv-item conv-item--active">
+                <svg class="conv-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"></path>
+                </svg>
+                <div class="conv-meta">
+                  <div class="conv-title">REPL Architecture Refactor</div>
+                  <div class="conv-subtitle">Explain the architecture of @agent/repl.py</div>
+                </div>
+                <span class="conv-time">now</span>
+              </div>
+
+              <div class="conv-item">
+                <svg class="conv-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"></path>
+                </svg>
+                <div class="conv-meta">
+                  <div class="conv-title">File Autocomplete Phase 2</div>
+                  <div class="conv-subtitle">Implement FileMentionCompleter</div>
+                </div>
+                <span class="conv-time">2h</span>
+              </div>
+
+              <div class="conv-item">
+                <svg class="conv-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"></path>
+                </svg>
+                <div class="conv-meta">
+                  <div class="conv-title">LLM Factory Config</div>
+                  <div class="conv-subtitle">Add multi-provider support</div>
+                </div>
+                <span class="conv-time">5h</span>
+              </div>
+
+              <div class="conv-item">
+                <svg class="conv-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"></path>
+                </svg>
+                <div class="conv-meta">
+                  <div class="conv-title">Tool Graph Debugging</div>
+                  <div class="conv-subtitle">Fix cycle detection in agent graph</div>
+                </div>
+                <span class="conv-time">1d</span>
+              </div>
+
+              <div class="conv-item">
+                <svg class="conv-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"></path>
+                </svg>
+                <div class="conv-meta">
+                  <div class="conv-title">Initial Project Setup</div>
+                  <div class="conv-subtitle">Bootstrap Lios Agent project</div>
+                </div>
+                <span class="conv-time">3d</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION: Files -->
+        <div class="accordion-section">
+          <button class="accordion-trigger" aria-expanded="true" onclick="toggleAccordion(this)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+            Files
+            <span class="accordion-trigger-count">~/project</span>
+          </button>
+          <div class="accordion-body" aria-hidden="false" style="max-height: 400px;">
+            <div class="file-tree">
+              <!-- Root level folders -->
+              <div class="file-tree-item file-tree-item--folder expanded" data-depth="0">
+                <svg class="folder-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"></path>
+                </svg>
+                <span class="file-tree-item-name">agent/</span>
+              </div>
+
+              <div class="file-tree-item file-tree-item--file" data-depth="1">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"></path>
+                  <polyline points="13 2 13 9 20 9"></polyline>
+                </svg>
+                <span class="file-tree-item-name">repl.py</span>
+                <span class="file-tree-item-badge file-tree-item-badge--modified">M</span>
+              </div>
+
+              <div class="file-tree-item file-tree-item--file" data-depth="1">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"></path>
+                  <polyline points="13 2 13 9 20 9"></polyline>
+                </svg>
+                <span class="file-tree-item-name">llm_factory.py</span>
+              </div>
+
+              <div class="file-tree-item file-tree-item--file" data-depth="1">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"></path>
+                  <polyline points="13 2 13 9 20 9"></polyline>
+                </svg>
+                <span class="file-tree-item-name">graph.py</span>
+              </div>
+
+              <div class="file-tree-item file-tree-item--folder" data-depth="1">
+                <svg class="folder-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"></path>
+                </svg>
+                <span class="file-tree-item-name">tools/</span>
+              </div>
+
+              <div class="file-tree-item file-tree-item--folder expanded" data-depth="0">
+                <svg class="folder-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"></path>
+                </svg>
+                <span class="file-tree-item-name">tests/</span>
+              </div>
+
+              <div class="file-tree-item file-tree-item--file" data-depth="1">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"></path>
+                  <polyline points="13 2 13 9 20 9"></polyline>
+                </svg>
+                <span class="file-tree-item-name">test_repl_completer.py</span>
+                <span class="file-tree-item-badge file-tree-item-badge--new">N</span>
+              </div>
+
+              <div class="file-tree-item file-tree-item--file" data-depth="1">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"></path>
+                  <polyline points="13 2 13 9 20 9"></polyline>
+                </svg>
+                <span class="file-tree-item-name">test_repl_history.py</span>
+                <span class="file-tree-item-badge file-tree-item-badge--modified">M</span>
+              </div>
+
+              <div class="file-tree-item file-tree-item--file" data-depth="0">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"></path>
+                  <polyline points="13 2 13 9 20 9"></polyline>
+                </svg>
+                <span class="file-tree-item-name">pyproject.toml</span>
+              </div>
+
+              <div class="file-tree-item file-tree-item--file" data-depth="0">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"></path>
+                  <polyline points="13 2 13 9 20 9"></polyline>
+                </svg>
+                <span class="file-tree-item-name">README.md</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION: Context -->
+        <div class="accordion-section">
+          <button class="accordion-trigger" aria-expanded="true" onclick="toggleAccordion(this)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+            Context
+          </button>
+          <div class="accordion-body" aria-hidden="false" style="max-height: 500px;">
+            <div class="context-panel">
+
+              <!-- Model -->
+              <div class="context-group">
+                <div class="context-group-label">Model</div>
+                <div class="context-model">
+                  <span class="context-model-dot"></span>
+                  <span class="context-model-name">gpt-4o</span>
+                  <span class="context-model-provider">OpenAI</span>
+                </div>
+              </div>
+
+              <!-- Token Usage -->
+              <div class="context-group">
+                <div class="context-group-label">Token Usage</div>
+                <div class="context-usage">
+                  <div class="context-usage-row">
+                    <span class="context-usage-label">Used</span>
+                    <span class="context-usage-value">1,247 / 128k</span>
+                  </div>
+                  <div class="context-usage-bar">
+                    <div class="context-usage-fill context-usage-fill--tokens"></div>
+                  </div>
+                  <div class="context-usage-row">
+                    <span class="context-usage-label">Cost</span>
+                    <span class="context-usage-value">$0.003 / $1.00</span>
+                  </div>
+                  <div class="context-usage-bar">
+                    <div class="context-usage-fill context-usage-fill--cost"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Attached Files -->
+              <div class="context-group">
+                <div class="context-group-label">Attached Files</div>
+                <div class="context-files">
+                  <div class="context-file-item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"></path>
+                      <polyline points="13 2 13 9 20 9"></polyline>
+                    </svg>
+                    <span class="context-file-item-name">agent/repl.py</span>
+                    <span class="context-file-item-size">186 ln</span>
+                    <button class="context-file-remove" title="Remove">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Active Tools -->
+              <div class="context-group">
+                <div class="context-group-label">Active Tools</div>
+                <div class="context-tools">
+                  <div class="context-tool-tag">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"></path>
+                      <polyline points="13 2 13 9 20 9"></polyline>
+                    </svg>
+                    Read
+                  </div>
+                  <div class="context-tool-tag">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"></path>
+                      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                    </svg>
+                    Edit
+                  </div>
+                  <div class="context-tool-tag">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="4 17 10 11 4 5"></polyline>
+                      <line x1="12" y1="19" x2="20" y2="19"></line>
+                    </svg>
+                    Bash
+                  </div>
+                  <div class="context-tool-tag">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="11" cy="11" r="8"></circle>
+                      <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                    Search
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Sidebar Footer -->
+      <div class="sidebar-footer">
+        <div class="sidebar-footer-row">
+          <span class="sidebar-footer-kbd"><kbd>Ctrl</kbd>+<kbd>B</kbd> toggle</span>
+          <span>v0.4.2</span>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- ============================================================
+         TERMINAL MAIN
+         ============================================================ -->
+    <div class="terminal-main">
+
+      <!-- Float toggle (visible when sidebar collapsed) -->
+      <button class="sidebar-toggle-float sidebar-btn" title="Open Sidebar (Ctrl+B)" onclick="toggleSidebar()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          <line x1="9" y1="3" x2="9" y2="21"></line>
+        </svg>
+      </button>
+
+      <!-- Terminal Body -->
+      <div class="terminal-body">
+
+        <!-- Welcome Banner -->
+        <div class="welcome">
+          <div class="welcome-brand">
+            <svg class="welcome-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="4 17 10 11 4 5"></polyline>
+              <line x1="12" y1="19" x2="20" y2="19"></line>
+            </svg>
+            <span class="welcome-name">Lios Agent<span class="welcome-version">v0.4.2</span></span>
+          </div>
+          <div class="welcome-hint">
+            Type a message to chat, <kbd>/help</kbd> for commands, <kbd>@</kbd> to mention files.
+          </div>
+        </div>
+
+        <!-- Turn 1: User -->
+        <div class="turn turn-user">
+          <span class="prompt-chevron">&#10095;</span>
+          <span class="user-input">Explain the architecture of <span class="mention">@agent/repl.py</span></span>
+        </div>
+
+        <!-- File attached feedback -->
+        <div class="file-attached">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"></path>
+          </svg>
+          <span>Attached agent/repl.py (186 lines)</span>
+        </div>
+
+        <!-- Turn 2: Agent Response -->
+        <div class="turn turn-agent">
+          <div class="agent-label">
+            <svg class="agent-label-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"></path>
+            </svg>
+            <span class="agent-label-text">Lios</span>
+            <span class="agent-label-model">gpt-4o</span>
+          </div>
+
+          <!-- Tool use indicator -->
+          <div class="tool-use">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"></path>
+            </svg>
+            <span>Read <span class="tool-use-name">agent/repl.py</span></span>
+          </div>
+
+          <div class="agent-content">
+            <p>The file is structured around the <strong>UniversalREPL</strong> class, which manages the interactive terminal session. Here are the key components:</p>
+
+            <p><strong>FileMentionCompleter</strong> &mdash; A <code>prompt_toolkit</code> completer that triggers on <code>@</code> and provides file path suggestions by traversing the local directory. It filters out hidden files and prevents parent directory traversal.</p>
+
+            <p><strong>LiosLexer</strong> &mdash; A Pygments-based lexer that highlights slash commands (<code>/help</code>) and file mentions (<code>@file</code>) in the input area.</p>
+
+            <p>The main loop in <code>start_interactive_session</code> dispatches to either command handlers or <code>_handle_chat</code> for LLM-backed conversation:</p>
+
+            <!-- Code Block -->
+            <div class="code-block">
+              <div class="code-block-header">
+                <span class="code-block-lang">python</span>
+                <button class="code-block-copy" type="button">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path>
+                  </svg>
+                  Copy
+                </button>
+              </div>
+              <div class="code-block-body">
+<pre><span class="tok-keyword">class</span> <span class="tok-type">UniversalREPL</span>:
+    <span class="tok-keyword">@staticmethod</span>
+    <span class="tok-keyword">def</span> <span class="tok-function">start_interactive_session</span>():
+        session <span class="tok-operator">=</span> <span class="tok-type">PromptSession</span>(
+            history<span class="tok-operator">=</span>history,
+            lexer<span class="tok-operator">=</span><span class="tok-type">PygmentsLexer</span>(<span class="tok-type">LiosLexer</span>),
+            completer<span class="tok-operator">=</span><span class="tok-type">FileMentionCompleter</span>()
+        )
+        <span class="tok-keyword">while</span> <span class="tok-keyword">True</span>:
+            user_input <span class="tok-operator">=</span> session.<span class="tok-function">prompt</span>(<span class="tok-string">'lios> '</span>)
+            <span class="tok-comment"># dispatch to commands or chat</span></pre>
+              </div>
+            </div>
+
+            <p>The <code>parse_input</code> method handles <code>@file</code> mentions by reading the referenced files and injecting their content into the prompt sent to the LLM.</p>
+          </div>
+        </div>
+
+        <!-- Turn 3: User with autocomplete popup -->
+        <div class="turn turn-user" style="position: relative;">
+          <span class="prompt-chevron">&#10095;</span>
+          <div class="autocomplete-wrapper">
+            <span class="user-input">Now refactor <span class="mention">@agent/</span><span class="streaming-cursor"></span></span>
+
+            <!-- Autocomplete Popup -->
+            <div class="autocomplete-popup">
+              <div class="autocomplete-header">Files</div>
+              <div class="autocomplete-item autocomplete-item--active">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"></path>
+                  <polyline points="13 2 13 9 20 9"></polyline>
+                </svg>
+                <span class="autocomplete-item-name">repl.py</span>
+                <span class="autocomplete-item-type">.py</span>
+              </div>
+              <div class="autocomplete-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"></path>
+                  <polyline points="13 2 13 9 20 9"></polyline>
+                </svg>
+                <span class="autocomplete-item-name">llm_factory.py</span>
+                <span class="autocomplete-item-type">.py</span>
+              </div>
+              <div class="autocomplete-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"></path>
+                </svg>
+                <span class="autocomplete-item-name">tools/</span>
+                <span class="autocomplete-item-type">dir</span>
+              </div>
+              <div class="autocomplete-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"></path>
+                  <polyline points="13 2 13 9 20 9"></polyline>
+                </svg>
+                <span class="autocomplete-item-name">graph.py</span>
+                <span class="autocomplete-item-type">.py</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Thinking State Demo -->
+        <div class="thinking">
+          <div class="thinking-spinner"></div>
+          <span class="thinking-text">Thinking...</span>
+        </div>
+
+        <!-- Input Area -->
+        <div class="input-area">
+          <div class="input-row">
+            <span class="prompt-chevron">&#10095;</span>
+            <input class="input-field" type="text" placeholder="Ask anything..." disabled />
+          </div>
+          <div class="status-bar">
+            <div class="status-bar-left">
+              <div class="status-indicator">
+                <span class="status-dot"></span>
+                <span>Connected</span>
+              </div>
+              <span>gpt-4o</span>
+            </div>
+            <div class="status-bar-right">
+              <span>1.2k tokens</span>
+              <span>$0.003</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  // Toggle sidebar collapse
+  function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    sidebar.classList.toggle('collapsed');
+  }
+
+  // Toggle accordion sections
+  function toggleAccordion(trigger) {
+    const expanded = trigger.getAttribute('aria-expanded') === 'true';
+    const body = trigger.nextElementSibling;
+
+    trigger.setAttribute('aria-expanded', !expanded);
+    body.setAttribute('aria-hidden', expanded);
+
+    if (expanded) {
+      body.style.maxHeight = '0';
+    } else {
+      body.style.maxHeight = body.scrollHeight + 'px';
+    }
+  }
+
+  // Keyboard shortcut: Ctrl+B to toggle sidebar
+  document.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+      e.preventDefault();
+      toggleSidebar();
+    }
+  });
+</script>
+
+</body>
+</html>
