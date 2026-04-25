@@ -16,6 +16,7 @@ class UserStory(BaseModel):
     id: str = Field(description="Sequential ID like US-001")
     title: str = Field(description="Short descriptive name")
     description: str = Field(description="As a [user], I want [X] so that [Y]")
+    target_files: List[str] = Field(description="Exact file paths this story will modify or create")
     acceptance_criteria: List[str] = Field(description="Verifiable checklist")
     priority: int = Field(description="Execution order (1 = first)")
     passes: bool = Field(default=False)
@@ -50,6 +51,7 @@ You MUST respond with ONLY a valid JSON array (no markdown, no explanation) wher
   "id": "US-001",
   "title": "Short title",
   "description": "As a [user], I want [X] so that [Y]",
+  "target_files": ["Exact/Path/To/File.swift", "Another/Path.swift"],
   "acceptance_criteria": ["Criterion 1", "Criterion 2", "xcodebuild compiles"],
   "priority": 1,
   "passes": false,
@@ -109,6 +111,7 @@ RULES:
             "id": "US-001",
             "title": blueprint.get("feature_name", "Feature Implementation"),
             "description": instructions[:200],
+            "target_files": [],
             "acceptance_criteria": ["xcodebuild compiles", "All blueprint files created/modified"],
             "priority": 1,
             "passes": False,
