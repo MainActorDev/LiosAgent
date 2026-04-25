@@ -1,6 +1,8 @@
 import os
 import typer
 from rich.console import Console
+from rich.status import Status
+from rich.markdown import Markdown
 from rich.panel import Panel
 import asyncio
 import os
@@ -132,26 +134,41 @@ def execute(
                     
             # Main Execution Loop
             while True:
+                # Determine current node based on vault_manager state
+                # If state not found, default to "Thinking"
                 try:
-                    # If we have initial state and haven't started, pass it. Otherwise pass None to resume.
-                    input_state = initial_state if (not current_state or not current_state.values) else None
-                    
-                    await graph_app.ainvoke(input_state, config=config)
-                    
-                    # After invoke completes or yields, check the state
-                    current_state = await graph_app.aget_state(config)
-                    
-                    # Dump human readable state to vault
-                    if current_state and current_state.values:
-                        VaultManager.dump_human_readable_state(vault_path, current_state.values)
-                    
-                    if not current_state.next:
-                        console.print("\n[bold green]🎉 Workflow Completed![/bold green]")
+                    with open(state_yml_path, "r") as f:
+                        state_yaml = yaml.safe_load(f)
+                        current_node = state_yaml.get("current_node", "Thinking") if state_yaml else "Thinking"
+                except Exception:
+                    current_node = "Thinking"
+
+                # Use console.status which might not support transient=True in all versions
+                with console.status(f"[bold cyan]Agent is {current_node}...[/bold cyan]", spinner="dots") as status:
+                    try:
+                        input_state = initial_state if (not current_state or not current_state.values) else None
+
+                        await graph_app.ainvoke(input_state, config=config)
+
+                        current_state = await graph_app.aget_state(config)
+
+                        if current_state and current_state.values:
+                            VaultManager.dump_human_readable_state(vault_path, current_state.values)
+                    except Exception as e:
+                        console.print(f"[bold red]Error during {current_node}:[/bold red] {e}")
+                        import traceback
+                        traceback.print_exc()
                         break
-                        
-                    # Handle Interrupts (Human in the loop)
-                    next_node = current_state.next[0]
-                    
+
+                # After node completes, print a clean summary line
+                console.print(f"[dim]✓ Completed {current_node}[/dim]")
+
+                if not current_state.next:
+                    console.print("\n[bold green]🎉 Workflow Completed![/bold green]")
+                    break
+
+                next_node = current_state.next[0]
+
                     if next_node == "blueprint_approval_gate":
                         UniversalREPL.print_agent_message("The Architectural Blueprint has been generated. Please review `blueprint.md` in your vault.\nType **Approve** to begin coding, or provide feedback to regenerate the blueprint.")
                         feedback = UniversalREPL.single_prompt()
@@ -187,12 +204,6 @@ def execute(
                             console.print("[yellow]Push aborted. Halting.[/yellow]")
                             break
                             
-                except Exception as e:
-                    console.print(f"\n[bold red]Fatal Graph Error:[/bold red] {e}")
-                    import traceback
-                    traceback.print_exc()
-                    break
-
     asyncio.run(run_graph())
 
 if __name__ == "__main__":
