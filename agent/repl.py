@@ -74,23 +74,42 @@ Keep your answers concise, helpful, and formatted in markdown.""")
 
     @staticmethod
     def start_interactive_session():
-        """
-        Starts the default interactive REPL loop.
-        """
-        style = Style.from_dict({
-            'prompt': 'ansicyan bold',
-        })
-        session = PromptSession(style=style)
+        from prompt_toolkit.history import FileHistory
+        from prompt_toolkit.lexers import PygmentsLexer
+        from prompt_toolkit.styles import Style as PromptStyle
+        import os
         
-        console.print("[bold green]Welcome to Lios-Agent Interactive Mode.[/bold green]")
-        console.print("Type [bold]/help[/bold] to see available commands or just start chatting.")
+        console.print(Panel.fit("[bold green]Welcome to the Lios-Agent REPL![/bold green]\nType [cyan]/help[/cyan] for commands or start chatting.", title="Lios", border_style="green"))
+        
+        # Setup history
+        config_dir = os.path.expanduser("~/.config/lios")
+        try:
+            os.makedirs(config_dir, exist_ok=True)
+            history_file = os.path.join(config_dir, ".lios_history")
+            history = FileHistory(history_file)
+        except Exception as e:
+            console.print(f"[bold yellow]Warning: Could not initialize history file ({e})[/bold yellow]")
+            history = None
+
+        style = PromptStyle.from_dict({
+            'prompt': 'bold cyan',
+            'pygments.keyword': 'cyan',
+            'pygments.name.class': 'green',
+        })
+        
+        session = PromptSession(
+            history=history,
+            lexer=PygmentsLexer(LiosLexer),
+            style=style
+        )
         
         # We will need chat history here for Task 3
         chat_history = []
         
         while True:
             try:
-                user_input = session.prompt('lios> ')
+                # Use the session to prompt
+                user_input = session.prompt([('class:prompt', 'lios> ')])
                 text = user_input.strip()
                 
                 if not text:
