@@ -6,17 +6,25 @@ This document details the complete flow of the Planning phase in the Lios-Agent 
 
 ## Overview
 
-```
-GitHub Issue Opened
+```text
+CLI Command: lios epic <name>  (or `lios story`)
        │
        ▼
-┌──────────────┐    vague    ┌──────────────────────────┐
-│   Vetting    │ ──────────► │ Post Clarification & END │
-└──────┬───────┘             └──────────────────────────┘
-       │ actionable
+┌──────────────────────────┐
+│  Interactive CLI Intake  │  (Prompts user, parses @file mentions)
+└──────┬───────────────────┘
+       │
        ▼
 ┌──────────────────┐
-│  Workspace Init  │  (APFS Clone → sandbox)
+│ Vault Init & Save│  (Creates .workspaces/<name>/state.yml)
+└──────┬───────────┘
+       │
+       ▼
+CLI Command: lios execute <vault_path>
+       │
+       ▼
+┌──────────────────┐
+│  Workspace Init  │  (APFS Clone target repo → sandbox)
 └──────┬───────────┘
        ▼
 ┌──────────────────────────┐
@@ -33,7 +41,7 @@ GitHub Issue Opened
 └──────┬───────────┘
        ▼
 ┌──────────────────────────────┐
-│  Blueprint Presentation      │  → Posts Markdown to GitHub Issue
+│  Blueprint Presentation      │  → Posts Markdown to CLI / GitHub
 │  (HITL Gate — waits for      │  → Pipeline HALTS
 │   "Approve" or feedback)     │  → Loops back to Planner if feedback is given
 └──────────────────────────────┘
@@ -41,27 +49,24 @@ GitHub Issue Opened
 
 ---
 
-## Step 1: Issue Vetting
+## Step 1: Interactive CLI Intake & Vault Initialization
 
-**Source:** `agent/graph.py` → `issue_vetting_node()`
+**Source:** `cli.py` → `epic()` / `story()`
 
 ### Purpose
-Prevent the agent from wasting compute on vague, spam, or incomplete issues.
+Gather the initial requirements directly from the engineer via the CLI, resolve local file context, and establish a local state "Vault" before starting the heavy execution engine.
 
 ### Flow
-1. The raw `issue.title` + `issue.body` text is passed to the Planning LLM.
-2. The LLM is prompted:
-   > "If the issue is clear enough to attempt finding/fixing code (it mentions a component, feature, or clear request), simply reply 'ACTIONABLE'. If the issue is vague, dummy testing text, or lacks context, write a short polite comment asking the developer for clarification."
-3. Two outcomes:
-   - **`"ACTIONABLE"`** → The graph proceeds to Workspace Init.
-   - **Anything else** → The LLM's response is posted as a GitHub comment on the issue via `post_github_comment()`, and the pipeline terminates.
+1. The developer runs `lios epic <name>` or `lios story <epic_name> <story_id>`.
+2. An interactive terminal session starts (`UniversalREPL.interactive_intake_session()`).
+3. The developer describes the feature. They can use the `@filepath` syntax (e.g., `Add a button to @src/App.tsx`).
+4. The REPL parses these tags, reads the local files, and concatenates their contents into the prompt.
+5. The `VaultManager` creates an isolated directory in `.workspaces/<name>/` and writes the initial context to a human-readable YAML state file.
+6. The user explicitly starts the graph pipeline by running `lios execute <vault_path>`.
 
 ### What is gathered
-Nothing. This is purely a quality gate.
-
-### Example rejection
-Issue: *"fix the app"*
-Agent comment: *"Hi! Could you provide more details about what specifically needs to be fixed? For example: which screen, feature, or error are you experiencing?"*
+- Task ID / Epic Name
+- Developer Instructions (with inlined local file contexts)
 
 ---
 
