@@ -593,7 +593,8 @@ def maestro_navigation_generator_node(state: AgentState):
 def should_retry(state: AgentState) -> str:
     """Conditional Edge logic: decides if we go back to CoderNode or give up."""
     # Break out to UI validation phase if build succeeded
-    if "PASSED" in state.get("history", [])[-1]:
+    history = state.get("history", [])
+    if history and "PASSED" in history[-1]:
         return "ui_check"
         
     # Safeguard against infinite loops and clean corrupted states
