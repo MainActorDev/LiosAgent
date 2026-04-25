@@ -23,6 +23,9 @@ def test_history_initialization(mock_getenv, mock_makedirs, mock_prompt_session)
     assert "history" in call_kwargs
     assert "lexer" in call_kwargs
     assert "style" in call_kwargs
+    assert "completer" in call_kwargs
+    from agent.repl import FileMentionCompleter
+    assert isinstance(call_kwargs["completer"], FileMentionCompleter)
 
 @patch("agent.repl.PromptSession")
 @patch("agent.repl.os.makedirs")

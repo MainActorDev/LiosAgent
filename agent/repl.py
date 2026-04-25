@@ -152,7 +152,8 @@ Keep your answers concise, helpful, and formatted in markdown.""")
         session = PromptSession(
             history=history,
             lexer=PygmentsLexer(LiosLexer),
-            style=style
+            style=style,
+            completer=FileMentionCompleter()
         )
         
         # We will need chat history here for Task 3
