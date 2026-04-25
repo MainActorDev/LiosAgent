@@ -7,13 +7,13 @@ This document details the complete flow of the Review phase in the Lios-Agent or
 ## Overview
 
 ```
-Code from Execution Phase
+Code from Execution Phase (Parallel Processing via Send API)
        │
        ▼
 ┌─────────────────┐    build failed     ┌─────────────────┐
 │ Build Validator │ ──────────────────► │ Router (retry)  │
-│ (Native Loop)   │    (up to 3x)       └─────────────────┘
-└───────┬─────────┘
+│ (Native Loop)   │    (up to 3x based  └─────────────────┘
+└───────┬─────────┘    on compile_retry_count)
         │ build passed
         ▼
 ┌─────────────────────────────────┐   fails   ┌─────────────────┐
@@ -41,13 +41,13 @@ Code from Execution Phase
 **Source:** `agent/graph.py` → `validator_node()`
 
 ### Purpose
-Determine if the generated code actually compiles natively.
+Determine if the generated code actually compiles natively. A strict 5-minute timeout is enforced at the `xcodebuild` subprocess level to guarantee the orchestrator can never hang indefinitely.
 
 ### Flow
 Lios-Agent entirely delegates `verification-before-completion` directly to the execution phase. If OpenCode exits cleanly, `validator_node` skips redundant Xcodebuild logic and inherently transitions the state forward by pushing the `Build SUCCESS` signal to the graph.
 
 **Build Failed (via catastrophic LLM timeout):**
-- LangGraph triggers a **full state rollback** after 3 failed compilation loops.
+- LangGraph triggers a **full state rollback** after 3 failed compilation loops (managed by `compile_retry_count`).
 - Routes to `push_node` with a halted status.
 
 ---

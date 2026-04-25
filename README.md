@@ -44,7 +44,7 @@ Writes code through a stateless integration with the headless `opencode-ai` CLI.
 | Sub-Node | Purpose |
 |----------|---------|
 | **PRD Decomposer** | Fragments the approved FeatureBlueprint into an array of `UserStory` models. Physically generates a nested `.lios/epics/{epic}/stories/{id}/story_plan.md` vault for each! |
-| **Story Selector** | Pops the next uncompleted User Story from the queue. Ensures the pipeline focuses on one micro-task at a time. |
+| **Story Selector** | Pops non-conflicting User Stories from the queue using LangGraph's `Send` API. Enables **parallel execution** (up to 3 stories concurrently) by functioning as a file lock manager to prevent git merge conflicts. |
 | **Architect Coder** | Translates the specific isolated story into a Prompt Payload and executes headless OpenCode editing inside the workspace sandbox. |
 
 **Key Advantage:** By chunking work into strictly isolated vaults, the agent avoids massive context-exhaustion and creates a cleanly bisectable Git history.

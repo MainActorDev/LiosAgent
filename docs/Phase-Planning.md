@@ -197,6 +197,7 @@ Transform the gathered intelligence + issue requirements into a **deterministic,
        filepath: str   # "Sources/Features/Order/OrderTrackingView.swift"
        purpose: str    # "New SwiftUI view implementing the tracking timeline UI"
    ```
+   *(Note: Later in the `prd_decomposer_node`, this blueprint is fragmented into individual `UserStory` models which map these operations into a strict `target_files: List[str]` array. This powers the parallel execution file-lock manager.)*
 
 4. **TDD Enforcement:**
    `files_to_test` has a Pydantic Field description that says *"Must contain at least 1 test file."* The LLM is structurally compelled to populate this array.

@@ -59,7 +59,7 @@ This enables the agent to safely run in `--dangerously-skip-permissions` fully-a
 The blueprint's architecture domains, files to modify, and context are concatenated into a massive "Prompt Payload".
 
 #### 1c. Subprocess Invocation & Streaming
-The agent is executed via Python's `subprocess.Popen` instead of `os.system` or `subprocess.run(capture_output)`.
+The agent is executed via Python's `subprocess.Popen` instead of `os.system` or `subprocess.run(capture_output)`. A strict 30-minute timeout is enforced at the process level to prevent infinite LLM hallucinations.
 ```python
 process = subprocess.Popen(
     ["npx", "--yes", "opencode-ai@latest", "run", prompt_payload, "--dangerously-skip-permissions"],
@@ -97,7 +97,7 @@ If OpenCode natively fails to compile its changes, it will seamlessly loop back 
 ## Failure & State Handling
 
 If `opencode-ai` exits with a non-zero exit code, or if a downstream orchestrator natively triggers a retry condition, LangGraph automatically handles iterative corrections:
-1. `retries_count` is incremented in LangGraph state.
+1. `compile_retry_count` is incremented in the `AgentState`.
 2. The pipeline routes back to `architect_coder`.
 3. Because `state["opencode_session_id"]` was captured contextually, the agent invokes `npx opencode-ai run --continue --session {ID}`, feeding the compiler error directly backward into the memory matrix of the exact existing session.
 4. **Fatal Max Retries:** If the AI loops and fails **3 times** resolving the semantic compilation error, the orchestrator triggers a State Rollback (`git checkout -- .` and `git clean -fd`) destroying the workspace anomaly cleanly.
