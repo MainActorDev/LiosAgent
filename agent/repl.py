@@ -1,5 +1,9 @@
 import os
 import re
+from prompt_toolkit import PromptSession
+from prompt_toolkit.styles import Style
+import shlex
+import sys
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.panel import Panel
@@ -11,7 +15,84 @@ class UniversalREPL:
     """
     Handles interactive terminal sessions and parses special commands like @file.
     """
-    
+
+    @staticmethod
+    def _handle_chat(text: str, chat_history: list):
+        """Placeholder for Task 3 chat loop."""
+        console.print("[dim]Chat functionality coming in the next task. For now, try /help[/dim]")
+
+    @staticmethod
+    def start_interactive_session():
+        """
+        Starts the default interactive REPL loop.
+        """
+        style = Style.from_dict({
+            'prompt': 'ansicyan bold',
+        })
+        session = PromptSession(style=style)
+        
+        console.print("[bold green]Welcome to Lios-Agent Interactive Mode.[/bold green]")
+        console.print("Type [bold]/help[/bold] to see available commands or just start chatting.")
+        
+        # We will need chat history here for Task 3
+        chat_history = []
+        
+        while True:
+            try:
+                user_input = session.prompt('lios> ')
+                text = user_input.strip()
+                
+                if not text:
+                    continue
+                    
+                if text.startswith('/'):
+                    # Command Routing
+                    parts = shlex.split(text)
+                    command = parts[0].lower()
+                    args = parts[1:]
+                    
+                    if command in ['/exit', '/quit']:
+                        console.print("[yellow]Goodbye![/yellow]")
+                        break
+                    elif command == '/help':
+                        console.print("Available commands: /epic <name>, /story <epic> <id>, /execute <vault>, /board, /exit")
+                    elif command == '/epic':
+                        if len(args) >= 1:
+                            # Import here to avoid circular dependencies if any
+                            from cli import epic
+                            epic(name=args[0])
+                        else:
+                            console.print("[red]Usage: /epic <name>[/red]")
+                    elif command == '/story':
+                        if len(args) >= 2:
+                            from cli import story
+                            story(epic_name=args[0], story_id=args[1])
+                        else:
+                            console.print("[red]Usage: /story <epic_name> <story_id>[/red]")
+                    elif command == '/execute':
+                        if len(args) >= 1:
+                            from cli import execute
+                            # We wrap execute since it runs asyncio.run internally, 
+                            # calling it directly is fine as it spins up its own event loop
+                            execute(vault_path=args[0])
+                        else:
+                            console.print("[red]Usage: /execute <vault_path>[/red]")
+                    elif command == '/board':
+                        console.print(Panel("[bold green]Trello integration coming soon![/bold green]\n\nFetching tasks from your remote board...", title="[bold blue]/board[/bold blue]"))
+                    else:
+                        console.print(f"[red]Unknown command:[/red] {command}")
+                else:
+                    # Proceed to chat (Implemented in Task 3)
+                    UniversalREPL._handle_chat(text, chat_history)
+                    
+            except KeyboardInterrupt:
+                continue
+            except EOFError:
+                console.print("\n[yellow]Goodbye![/yellow]")
+                break
+            except Exception as e:
+                console.print(f"[bold red]Error:[/bold red] {e}")
+
     @staticmethod
     def parse_input(user_input: str, workspace_root: str = ".") -> str:
         """
