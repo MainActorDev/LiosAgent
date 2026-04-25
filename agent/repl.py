@@ -13,8 +13,58 @@ from rich.panel import Panel
 from rich.markdown import Markdown
 from pygments.lexer import RegexLexer
 from pygments.token import Token
+from prompt_toolkit.completion import Completer, Completion
 
 console = Console()
+
+class FileMentionCompleter(Completer):
+    def get_completions(self, document, complete_event):
+        # We only care about the word right before the cursor
+        word_before_cursor = document.get_word_before_cursor(WORD=True)
+        
+        # Does it start with '@'?
+        if not word_before_cursor.startswith('@'):
+            return
+
+        # Extract the path part
+        path_prefix = word_before_cursor[1:]
+        
+        # Block traversal outside current directory
+        if '..' in path_prefix.split(os.sep):
+            return
+
+        # Determine the directory to search and the prefix to match
+        dirname = os.path.dirname(path_prefix)
+        basename = os.path.basename(path_prefix)
+        
+        search_dir = dirname if dirname else '.'
+        
+        try:
+            # List contents of the directory
+            entries = os.listdir(search_dir)
+        except OSError:
+            # Directory doesn't exist or no permission
+            return
+
+        for entry in entries:
+            # Ignore hidden files/directories
+            if entry.startswith('.'):
+                continue
+                
+            # Filter by the typed prefix
+            if entry.startswith(basename):
+                # Construct the full relative path for display if needed, 
+                # but we usually just yield the completion text.
+                
+                # Check if it's a directory to append a slash
+                full_path = os.path.join(search_dir, entry)
+                completion_text = entry
+                if os.path.isdir(full_path):
+                    completion_text += '/'
+                    
+                # Yield the completion. 
+                # start_position is negative length of the matched prefix.
+                yield Completion(completion_text, start_position=-len(basename))
 
 class LiosLexer(RegexLexer):
     name = 'Lios'
