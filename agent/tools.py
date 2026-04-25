@@ -128,7 +128,8 @@ def execute_xcodebuild(workspace_path: str) -> str:
             build_cmd,
             cwd=workspace_path,
             capture_output=True,
-            text=True
+            text=True,
+            timeout=300 # 5 minute timeout for xcodebuild
         )
         
         if result.returncode == 0:
