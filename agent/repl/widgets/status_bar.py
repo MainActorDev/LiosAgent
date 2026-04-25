@@ -32,22 +32,28 @@ class StatusBar(Static):
         """Re-render the status bar content."""
         self.update(self.render())
 
+    def _format_tokens(self, count: int) -> str:
+        """Format token count with k suffix for large numbers."""
+        if count >= 1000:
+            return f"{count / 1000:.1f}k tokens"
+        return f"{count:,} tokens"
+
     def render(self) -> Text:
         width = self.size.width if self.size.width > 0 else 80
 
         left = Text()
         if self._connected:
-            left.append("  ● ", style=f"bold {GREEN}")
+            left.append("● ", style=f"bold {GREEN}")
             left.append("Connected", style=TEXT_MUTED)
-            left.append(f" · {self._model_name}", style=TEXT_MUTED)
+            left.append(f"  {self._model_name}", style=TEXT_MUTED)
         else:
-            left.append("  ○ ", style=TEXT_MUTED)
+            left.append("○ ", style=TEXT_MUTED)
             left.append("Disconnected", style=TEXT_MUTED)
 
         right = Text()
         if self._total_tokens > 0:
-            right.append(f"{self._total_tokens:,} tokens", style=TEXT_MUTED)
-            right.append(f" · ${self._total_cost:.2f}", style=TEXT_MUTED)
+            right.append(self._format_tokens(self._total_tokens), style=TEXT_MUTED)
+            right.append(f"  ${self._total_cost:.3f}", style=TEXT_MUTED)
 
         # Pad to fill the width
         gap = max(1, width - len(left.plain) - len(right.plain))

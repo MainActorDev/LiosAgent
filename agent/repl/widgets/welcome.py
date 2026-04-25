@@ -15,8 +15,9 @@ class WelcomeBanner(Static):
 
     def render(self) -> Text:
         text = Text()
-        text.append("  ⬢  ", style=f"bold {GREEN}")
-        text.append(f"Lios Agent v{self._version}", style=f"bold {TEXT_PRIMARY}")
+        text.append("  >_ ", style=f"bold {GREEN}")
+        text.append(f"Lios Agent ", style=f"bold {TEXT_PRIMARY}")
+        text.append(f"v{self._version}", style=TEXT_MUTED)
         text.append("\n")
         text.append(
             "  Type a message to chat, /help for commands, @ to mention files",

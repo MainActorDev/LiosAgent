@@ -18,13 +18,13 @@ class UserMessage(Static):
 
     def render(self) -> Text:
         text = Text()
-        text.append("  ❯  ", style=f"bold {GREEN}")
+        text.append("❯ ", style=f"bold {GREEN}")
         # Highlight @mentions in cyan within the user text
         self._render_with_mentions(text, self._content)
 
         for att in self._attachments:
             text.append("\n")
-            text.append("     📎 ", style=TEXT_MUTED)
+            text.append("  📎 ", style=TEXT_MUTED)
             text.append(
                 f"Attached {att['path']} ({att['lines']} lines)",
                 style=TEXT_MUTED,
@@ -53,9 +53,9 @@ class AgentMessage(Vertical):
 
     def compose(self) -> ComposeResult:
         label = Text()
-        label.append("  ☀ LIOS", style=f"bold {PURPLE}")
+        label.append("☀ LIOS", style=f"bold {PURPLE}")
         if self._model_name:
-            label.append(f" · {self._model_name}", style=TEXT_MUTED)
+            label.append(f"  {self._model_name}", style=TEXT_MUTED)
         yield Static(label, classes="agent-label")
         yield Markdown("", classes="agent-content")
 

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.containers import Horizontal, Vertical
+from textual.widgets import Static
 from textual.worker import Worker, get_current_worker
 
-from agent.repl.theme import APP_CSS
+from agent.repl.theme import APP_CSS, GREEN
 from agent.repl.widgets.welcome import WelcomeBanner
 from agent.repl.widgets.chat_log import ChatLog
 from agent.repl.widgets.message_bubble import (
@@ -48,7 +50,10 @@ class LiosChatApp(App):
     def compose(self) -> ComposeResult:
         yield WelcomeBanner()
         yield ChatLog(id="chat-log")
-        yield ChatInput(id="input")
+        with Vertical(id="input-area"):
+            with Horizontal(id="input-row"):
+                yield Static("❯ ", classes="input-chevron")
+                yield ChatInput(id="input")
         yield StatusBar(id="status")
 
     def on_mount(self) -> None:

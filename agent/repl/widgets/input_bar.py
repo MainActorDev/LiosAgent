@@ -71,7 +71,7 @@ class ChatInput(Input):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(
-            placeholder="Type a message...",
+            placeholder="Ask anything...",
             highlighter=ChatInputHighlighter(),
             suggester=FileMentionSuggester(),
             **kwargs,
