@@ -348,19 +348,23 @@ Ensure you fulfill every aspect of the blueprint."""
     
     # --- Ralph Integration: Focus on current story if PRD exists ---
     prd_stories = state.get("prd_stories", [])
-    if prd_stories:
-        from agent.ralph import get_current_story
-        current_story = get_current_story(prd_stories)
+    active_ids = state.get("active_story_ids", [])
+    story_id = active_ids[0] if active_ids else None
+    
+    if prd_stories and story_id:
+        current_story = next((s for s in prd_stories if s["id"] == story_id), None)
         if current_story:
             prompt += f"""\n\n📋 CURRENT STORY (focus on THIS only):
 Story ID: {current_story['id']}
 Title: {current_story['title']}
 Description: {current_story['description']}
+Target Files: {current_story.get('target_files', [])}
 Acceptance Criteria:
 {chr(10).join(f'  - {c}' for c in current_story.get('acceptance_criteria', []))}
 Notes: {current_story.get('notes', 'None')}
 
 IMPORTANT: Implement ONLY this story. Do not work on other stories.
+Only modify the files listed in Target Files to avoid parallel execution merge conflicts.
 After completing, ensure all acceptance criteria are met."""
     
     instructions_lower = state.get('instructions', '').lower()
@@ -420,24 +424,29 @@ After completing, ensure all acceptance criteria are met."""
         
     # 3. Stream real-time output and harvest Session ID
     print(f"👨‍💻 Architect Coder is farming execution to OpenCode in {workspace_path} (Auto-Approve Enabled)...")
-    process = subprocess.Popen(
-        cmd,
-        cwd=workspace_path,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,  # Merge stderr into stdout
-        text=True,
-        bufsize=1
-    )
-    
-    captured_output = []
-    
-    for line in iter(process.stdout.readline, ''):
-        # Print natively bypassing python typical buffering
-        sys.stdout.write(line)
-        sys.stdout.flush()
-        captured_output.append(line)
+    try:
+        process = subprocess.Popen(
+            cmd,
+            cwd=workspace_path,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # Merge stderr into stdout
+            text=True,
+            bufsize=1
+        )
         
-    process.wait()
+        captured_output = []
+        
+        for line in iter(process.stdout.readline, ''):
+            # Print natively bypassing python typical buffering
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            captured_output.append(line)
+            
+        process.wait(timeout=1800) # 30 minute timeout for OpenCode runs
+    except subprocess.TimeoutExpired:
+        process.kill()
+        captured_output.append("\n\n[Lios-Agent] TIMEOUT: OpenCode execution exceeded 30 minutes and was killed.")
+        print("\n\n[Lios-Agent] TIMEOUT: OpenCode execution exceeded 30 minutes and was killed.")
     
     # 4. Extract Session ID if available in TUI raw output
     full_output = "".join(captured_output)
@@ -477,12 +486,14 @@ def validator_node(state: AgentState):
         errors = state.get("compiler_errors", [])
         errors.append(build_output)
         retries = state.get("retries_count", 0) + 1
+        compile_retries = state.get("compile_retry_count", 0) + 1
         story_retries = state.get("story_retries_count", 0) + 1
         return {
             "compiler_errors": errors,  
             "retries_count": retries,
+            "compile_retry_count": compile_retries,
             "story_retries_count": story_retries,
-            "history": [f"Xcode Build Failed. Retry count: {retries} (Story retries: {story_retries})"]
+            "history": [f"Xcode Build Failed. Retry count: {retries} (Story retries: {story_retries}, Compile retries: {compile_retries})"]
         }
 
 def maestro_navigation_generator_node(state: AgentState):
@@ -586,7 +597,7 @@ def should_retry(state: AgentState) -> str:
         return "ui_check"
         
     # Safeguard against infinite loops and clean corrupted states
-    if state.get("retries_count", 0) >= 3:
+    if state.get("compile_retry_count", 0) >= 3:
         workspace_path = state.get("workspace_path")
         if workspace_path:
             import subprocess
@@ -780,27 +791,63 @@ def prd_decomposer_node(state: AgentState):
         "history": [f"PRD Decomposition complete: {len(stories)} stories generated."]
     }
 
+from langgraph.types import Send
 def story_selector_node(state: AgentState):
-    """Pick the next pending story from the PRD, or signal completion."""
-    from agent.ralph import get_current_story
-    
+    """Pick the next pending stories from the PRD that don't have file conflicts, or signal completion."""
     stories = state.get("prd_stories", [])
-    current_story = get_current_story(stories)
+    active_ids = state.get("active_story_ids", [])
+    completed = state.get("completed_story_ids", [])
+    skipped = state.get("skipped_story_ids", [])
     
-    if current_story:
-        print(f"📖 Next story: {current_story['id']} - {current_story['title']}")
+    # Calculate locked files from currently active stories
+    locked_files = set()
+    for s in stories:
+        if s["id"] in active_ids:
+            locked_files.update(s.get("target_files", []))
+            
+    # Find pending stories that don't intersect with locked files
+    sends = []
+    new_active_ids = list(active_ids)
+    picked_stories = []
+    
+    for story in stories:
+        # A story is pending if it's not active, completed, or skipped
+        is_pending = (
+            story["id"] not in active_ids and
+            story["id"] not in completed and
+            story["id"] not in skipped
+        )
+        
+        if is_pending:
+            story_files = set(story.get("target_files", []))
+            # No conflict! We can run this in parallel
+            if not story_files.intersection(locked_files):
+                sends.append(Send("architect_coder", {"active_story_ids": [story["id"]]}))
+                new_active_ids.append(story["id"])
+                locked_files.update(story_files)
+                picked_stories.append(f"{story['id']} - {story['title']}")
+                
+                # Enforce concurrency limit (e.g. max 3)
+                if len(new_active_ids) >= 3:
+                    break
+    
+    if sends:
+        print(f"📖 Next parallel stories: {', '.join(picked_stories)}")
         return {
-            "current_story_id": current_story["id"],
+            "active_story_ids": new_active_ids,
             "story_retries_count": 0,   # Reset per-story retry counter
+            "compile_retry_count": 0,   # Reset compile retry counter
             "compiler_errors": [],       # Clear errors from previous story
-            "history": [f"Story selector: picked {current_story['id']} - {current_story['title']}"]
-        }
+            "history": [f"Story selector: dispatched {len(sends)} stories in parallel"]
+        }, sends
+    elif active_ids:
+         # Waiting for active stories to complete before picking more
+         print(f"⏳ Waiting for {len(active_ids)} active stories to complete...")
+         return {"history": [f"Story selector: waiting on {len(active_ids)} active stories."]}
     else:
-        completed = state.get("completed_story_ids", [])
-        skipped = state.get("skipped_story_ids", [])
         print(f"🎉 All stories processed! Completed: {len(completed)}, Skipped: {len(skipped)}")
         return {
-            "current_story_id": "",
+            "active_story_ids": [],
             "history": [f"All stories processed. {len(completed)} completed, {len(skipped)} skipped."]
         }
 
@@ -811,7 +858,8 @@ def story_commit_node(state: AgentState):
     
     workspace_path = state.get("workspace_path")
     stories = state.get("prd_stories", [])
-    story_id = state.get("current_story_id", "")
+    active_ids = state.get("active_story_ids", [])
+    story_id = active_ids[0] if active_ids else ""
     
     # Find the current story
     current_story = next((s for s in stories if s["id"] == story_id), None)
@@ -824,10 +872,15 @@ def story_commit_node(state: AgentState):
     # Mark story as passed
     updated_stories = mark_story_passed(stories, story_id)
     completed = state.get("completed_story_ids", [])
-    completed.append(story_id)
+    if story_id not in completed:
+        completed.append(story_id)
+        
+    if story_id in active_ids:
+        active_ids.remove(story_id)
     
     return {
         "prd_stories": updated_stories,
+        "active_story_ids": active_ids,
         "completed_story_ids": completed,
         "history": [f"Story {story_id} committed: {result}"]
     }
@@ -838,7 +891,12 @@ def story_progress_node(state: AgentState):
     
     workspace_path = state.get("workspace_path")
     stories = state.get("prd_stories", [])
-    story_id = state.get("current_story_id", "")
+    
+    # In Send API architecture, the active_story_ids isn't directly usable here
+    # to find the specific completed story because it was removed in story_commit.
+    # So we find the most recently completed story.
+    completed = state.get("completed_story_ids", [])
+    story_id = completed[-1] if completed else ""
     
     current_story = next((s for s in stories if s["id"] == story_id), None)
     if current_story:
@@ -852,7 +910,10 @@ def story_skip_node(state: AgentState):
     
     workspace_path = state.get("workspace_path")
     stories = state.get("prd_stories", [])
-    story_id = state.get("current_story_id", "")
+    active_ids = state.get("active_story_ids", [])
+    # For now, we assume the first active story is the one that failed.
+    # In a fully parallel Send setup, state updates need to be carefully scoped.
+    story_id = active_ids[0] if active_ids else ""
     
     current_story = next((s for s in stories if s["id"] == story_id), None)
     
@@ -865,7 +926,11 @@ def story_skip_node(state: AgentState):
         current_story["notes"] = f"SKIPPED after 3 retries. Last error: {last_error[-200:]}"
     
     skipped = state.get("skipped_story_ids", [])
-    skipped.append(story_id)
+    if story_id not in skipped:
+        skipped.append(story_id)
+        
+    if story_id in active_ids:
+        active_ids.remove(story_id)
     
     # Git rollback: discard uncommitted changes from the failed story
     import subprocess
@@ -878,8 +943,10 @@ def story_skip_node(state: AgentState):
     
     return {
         "prd_stories": stories,
+        "active_story_ids": active_ids,
         "skipped_story_ids": skipped,
         "story_retries_count": 0,
+        "compile_retry_count": 0,
         "compiler_errors": [],
         "history": [f"Story {story_id} SKIPPED after max retries. Rolled back uncommitted changes."]
     }
@@ -892,8 +959,8 @@ def should_retry_story(state: AgentState) -> str:
     if "PASSED" in last_history:
         return "story_commit"
     
-    # Per-story retry limit
-    if state.get("story_retries_count", 0) >= 3:
+    # Per-story retry limit using compile_retry_count
+    if state.get("compile_retry_count", 0) >= 3:
         return "story_skip"
     
     # Retry: send back to coder with error context
@@ -901,8 +968,12 @@ def should_retry_story(state: AgentState) -> str:
 
 def should_continue_stories(state: AgentState) -> str:
     """After story_selector picks a story, route based on whether there's work left."""
-    if state.get("current_story_id"):
-        return "architect_coder"
+    # Note: With Send API, the node itself handles routing to architect_coder.
+    # We just need to route to ui_check when NO stories are active and none were sent.
+    if state.get("active_story_ids"):
+        # This branch isn't really used since Send objects bypass conditional edges,
+        # but LangGraph requires a fallback path if we don't return Send objects.
+        return "architect_coder" 
     return "ui_check"
 
 def build_graph(checkpointer=None):
