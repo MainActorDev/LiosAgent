@@ -32,7 +32,7 @@ def is_command(text: str) -> bool:
     return text.startswith("/")
 
 
-def route_command(text: str, app: "App") -> str:
+async def route_command(text: str, app: "App") -> str:
     """Route a slash command and execute its handler.
 
     Returns:
@@ -53,30 +53,30 @@ def route_command(text: str, app: "App") -> str:
         return "handled"
 
     if command == "/help":
-        _post_system_message(app, HELP_TEXT)
+        await _post_system_message(app, HELP_TEXT)
         return "handled"
 
     if command == "/board":
-        _post_system_message(app, BOARD_TEXT)
+        await _post_system_message(app, BOARD_TEXT)
         return "handled"
 
     if command == "/epic":
         if not args:
-            _post_system_message(app, "**Error:** Usage: `/epic <name>`")
+            await _post_system_message(app, "**Error:** Usage: `/epic <name>`")
             return "error"
         _handle_subflow(app, "epic", args)
         return "handled"
 
     if command == "/story":
         if len(args) < 2:
-            _post_system_message(app, "**Error:** Usage: `/story <epic_name> <story_id>`")
+            await _post_system_message(app, "**Error:** Usage: `/story <epic_name> <story_id>`")
             return "error"
         _handle_subflow(app, "story", args)
         return "handled"
 
     if command == "/execute":
         if not args:
-            _post_system_message(app, "**Error:** Usage: `/execute <vault_path>`")
+            await _post_system_message(app, "**Error:** Usage: `/execute <vault_path>`")
             return "error"
         _handle_subflow(app, "execute", args)
         return "handled"
@@ -84,13 +84,13 @@ def route_command(text: str, app: "App") -> str:
     return "unknown"
 
 
-def _post_system_message(app: "App", markdown_text: str) -> None:
+async def _post_system_message(app: "App", markdown_text: str) -> None:
     """Add a system/help message to the chat log."""
     from agent.repl.widgets.message_bubble import AgentMessage
 
     chat_log = app.query_one("#chat-log")
     msg = AgentMessage(model_name="system")
-    chat_log.mount(msg)
+    await chat_log.mount(msg)
     msg.get_markdown_widget().update(markdown_text)
 
 

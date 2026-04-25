@@ -73,9 +73,9 @@ class LiosChatApp(App):
 
         # Handle commands
         if is_command(text):
-            result = route_command(text, self)
+            result = await route_command(text, self)
             if result == "unknown":
-                self._add_system_message(f"Unknown command: `{text.split()[0]}`")
+                await self._add_system_message(f"Unknown command: `{text.split()[0]}`")
             return
 
         # Handle intake /done
@@ -147,10 +147,10 @@ class LiosChatApp(App):
             if "READY_TO_ARCHITECT" in full_response:
                 self.call_from_thread(self.exit, self._intake_result)
 
-    def _mount_agent_message(self, agent_msg: AgentMessage) -> None:
+    async def _mount_agent_message(self, agent_msg: AgentMessage) -> None:
         """Mount agent message widget (must be called from main thread)."""
         chat_log = self.query_one("#chat-log", ChatLog)
-        chat_log.mount(agent_msg)
+        await chat_log.mount(agent_msg)
         chat_log.scroll_end(animate=False)
 
         # Update status bar connection
@@ -183,13 +183,13 @@ class LiosChatApp(App):
             self.llm_bridge.total_cost,
         )
 
-    def _add_system_message(self, text: str) -> None:
+    async def _add_system_message(self, text: str) -> None:
         """Add a system message to the chat log."""
         from agent.repl.widgets.message_bubble import AgentMessage
 
         chat_log = self.query_one("#chat-log", ChatLog)
         msg = AgentMessage(model_name="system")
-        chat_log.mount(msg)
+        await chat_log.mount(msg)
         msg.get_markdown_widget().update(text)
 
     def action_clear_chat(self) -> None:
