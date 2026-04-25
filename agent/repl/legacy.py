@@ -1,11 +1,10 @@
-"""Legacy facade preserving the UniversalREPL static method API.
-
-All call sites (cli.py, tests) that use ``from agent.repl import UniversalREPL``
-continue to work unchanged. The facade delegates to the Textual TUI app
-for interactive sessions and keeps Rich-only output for non-TUI contexts.
-"""
+"""Legacy facade preserving the UniversalREPL static method API."""
 
 from __future__ import annotations
+import threading
+import time
+import uvicorn
+import webview
 
 from rich.console import Console
 from rich.markdown import Markdown
@@ -15,46 +14,48 @@ from agent.repl.parse_input import parse_input as _parse_input
 
 console = Console()
 
+def start_server():
+    from agent.repl.server import app
+    # Run uvicorn on a specific port, log_level="warning" to keep terminal clean
+    uvicorn.run(app, host="127.0.0.1", port=8123, log_level="warning")
+
 
 class UniversalREPL:
-    """Backward-compatible facade over the Textual TUI."""
+    """Facade over the Web UI."""
 
     @staticmethod
     def start_interactive_session() -> None:
-        """Launch the Textual TUI for interactive chat."""
-        from agent.repl.app import LiosChatApp
-
-        app = LiosChatApp(mode="chat")
-        app.run()
+        """Launch the PyWebView Desktop App."""
+        # Start FastAPI server in a background daemon thread
+        server_thread = threading.Thread(target=start_server, daemon=True)
+        server_thread.start()
+        
+        # Wait briefly to ensure server is up
+        time.sleep(1)
+        
+        # Launch PyWebView window
+        webview.create_window(
+            'Lios-Agent', 
+            'http://127.0.0.1:8123',
+            width=1200, 
+            height=800,
+            background_color='#0a0a0c'
+        )
+        webview.start()
 
     @staticmethod
     def interactive_intake_session(
         epic_name: str, workspace_root: str = "."
     ) -> str:
-        """Launch the Textual TUI in intake mode for requirement refinement.
-
-        Returns the accumulated conversation context as a string.
-        """
-        from agent.repl.app import LiosChatApp
-
-        app = LiosChatApp(
-            mode="intake",
-            epic_name=epic_name,
-            workspace_root=workspace_root,
-        )
-        result = app.run()
-        return result if isinstance(result, str) else ""
+        """Launch the UI in intake mode (Fallback for now)."""
+        console.print("[yellow]Web UI intake mode not yet fully implemented, falling back to basic chat[/yellow]")
+        UniversalREPL.start_interactive_session()
+        return "Web UI Session Completed"
 
     @staticmethod
     def parse_input(user_input: str, workspace_root: str = ".") -> str:
-        """Parse @file mentions — backward-compatible string return.
-
-        The underlying ``parse_input`` now returns a tuple, but this
-        facade returns only the processed text string to avoid breaking
-        existing call sites in cli.py.
-        """
-        processed_text, _attachments = _parse_input(user_input, workspace_root)
-        return processed_text
+        from agent.repl.parse_input import parse_input as _parse_input
+        return _parse_input(user_input, workspace_root)
 
     @staticmethod
     def single_prompt(prompt_text: str = "You", workspace_root: str = ".") -> str:
