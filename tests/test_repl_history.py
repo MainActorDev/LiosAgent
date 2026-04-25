@@ -1,45 +1,42 @@
-import os
-from unittest.mock import patch, MagicMock
-from agent.repl import UniversalREPL
+"""Tests for Textual app widget composition (replaces old PromptSession tests)."""
 
-@patch("agent.repl.PromptSession")
-@patch("agent.repl.os.makedirs")
-@patch("agent.repl.os.getenv")
-def test_history_initialization(mock_getenv, mock_makedirs, mock_prompt_session):
-    mock_getenv.return_value = None
-    mock_instance = MagicMock()
-    mock_instance.prompt.side_effect = EOFError()
-    mock_prompt_session.return_value = mock_instance
+import pytest
+from agent.repl import UniversalREPL, FileMentionCompleter, LiosLexer
 
-    try:
-        UniversalREPL.start_interactive_session()
-    except EOFError:
-        pass # Expected since we mock prompt to exit immediately, or if the REPL catches it, it's fine
 
-    expected_path = os.path.expanduser("~/.config/lios")
-    mock_makedirs.assert_called_with(expected_path, exist_ok=True)
+def test_repl_imports_are_available():
+    """Verify backward-compatible imports still work."""
+    assert UniversalREPL is not None
+    assert FileMentionCompleter is not None
+    assert LiosLexer is not None
 
-    call_kwargs = mock_prompt_session.call_args[1]
-    assert "history" in call_kwargs
-    assert "lexer" in call_kwargs
-    assert "style" in call_kwargs
-    assert "completer" in call_kwargs
-    from agent.repl import FileMentionCompleter
-    assert isinstance(call_kwargs["completer"], FileMentionCompleter)
 
-@patch("agent.repl.PromptSession")
-@patch("agent.repl.os.makedirs")
-@patch("agent.repl.os.getenv")
-def test_history_initialization_with_xdg(mock_getenv, mock_makedirs, mock_prompt_session):
-    mock_getenv.return_value = "/tmp/custom_config"
-    mock_instance = MagicMock()
-    mock_instance.prompt.side_effect = EOFError()
-    mock_prompt_session.return_value = mock_instance
+def test_universal_repl_has_expected_methods():
+    """Verify the facade exposes all expected static methods."""
+    assert callable(UniversalREPL.start_interactive_session)
+    assert callable(UniversalREPL.interactive_intake_session)
+    assert callable(UniversalREPL.single_prompt)
+    assert callable(UniversalREPL.parse_input)
+    assert callable(UniversalREPL.print_agent_message)
 
-    try:
-        UniversalREPL.start_interactive_session()
-    except EOFError:
-        pass
 
-    expected_path = "/tmp/custom_config/lios"
-    mock_makedirs.assert_called_with(expected_path, exist_ok=True)
+def test_app_composes_expected_widgets():
+    """Verify LiosChatApp composes the required widget tree."""
+    from agent.repl.app import LiosChatApp
+    from agent.repl.widgets.welcome import WelcomeBanner
+    from agent.repl.widgets.chat_log import ChatLog
+    from agent.repl.widgets.input_bar import ChatInput
+    from agent.repl.widgets.status_bar import StatusBar
+
+    app = LiosChatApp(mode="chat")
+
+    # Use Textual's pilot for headless testing
+    async def check_widgets():
+        async with app.run_test() as pilot:
+            assert app.query_one(WelcomeBanner) is not None
+            assert app.query_one("#chat-log", ChatLog) is not None
+            assert app.query_one("#input", ChatInput) is not None
+            assert app.query_one("#status", StatusBar) is not None
+
+    import asyncio
+    asyncio.run(check_widgets())
