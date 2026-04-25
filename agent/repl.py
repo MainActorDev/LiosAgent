@@ -17,9 +17,44 @@ class UniversalREPL:
     """
 
     @staticmethod
-    def _handle_chat(text: str, chat_history: list):
-        """Placeholder for Task 3 chat loop."""
-        console.print("[dim]Chat functionality coming in the next task. For now, try /help[/dim]")
+    def _handle_chat(text: str, history: list):
+        """
+        Handles natural language input in the REPL using LangChain.
+        """
+        from agent.llm_factory import get_llm
+        from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+        
+        try:
+            llm = get_llm(role="planning") # Use planning LLM for general chat
+        except Exception as e:
+            console.print(f"[bold red]Failed to initialize LLM:[/bold red] {e}")
+            return
+            
+        if not history:
+            # Initialize history with system prompt
+            system_prompt = SystemMessage(content="""You are Lios, an Autonomous iOS Engineer.
+The user is talking to you via your interactive CLI mode.
+You can help them brainstorm, explain how to use the CLI, or answer general questions.
+The available CLI commands are: /epic <name>, /story <epic> <id>, /execute <vault>, /board.
+Keep your answers concise, helpful, and formatted in markdown.""")
+            history.append(system_prompt)
+            
+        # Parse for @mentions
+        parsed_input = UniversalREPL.parse_input(text, workspace_root=".")
+        history.append(HumanMessage(content=parsed_input))
+        
+        try:
+            with console.status("[dim]Thinking...[/dim]"):
+                response = llm.invoke(history)
+            
+            ai_text = response.content
+            UniversalREPL.print_agent_message(ai_text)
+            history.append(AIMessage(content=ai_text))
+            
+        except Exception as e:
+            console.print(f"[bold red]LLM Error:[/bold red] {e}")
+            # Remove the failed human message from history
+            history.pop()
 
     @staticmethod
     def start_interactive_session():
