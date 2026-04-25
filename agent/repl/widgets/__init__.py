@@ -3,7 +3,6 @@
 from agent.repl.widgets.welcome import WelcomeBanner
 from agent.repl.widgets.chat_log import ChatLog
 from agent.repl.widgets.message_bubble import UserMessage, AgentMessage, ThinkingIndicator
-from agent.repl.widgets.input_bar import ChatInput
 from agent.repl.widgets.status_bar import StatusBar
 
 __all__ = [
@@ -12,6 +11,11 @@ __all__ = [
     "UserMessage",
     "AgentMessage",
     "ThinkingIndicator",
-    "ChatInput",
     "StatusBar",
 ]
+
+try:
+    from agent.repl.widgets.input_bar import ChatInput
+    __all__.append("ChatInput")
+except ModuleNotFoundError:
+    pass
