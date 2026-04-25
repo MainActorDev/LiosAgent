@@ -15,4 +15,8 @@ pytest>=8.0.0
 pytest-mock>=3.12.0
 prompt_toolkit
 pygments>=2.15.0
+fastapi
+uvicorn
+websockets
+pywebview
 textual>=0.50.0
