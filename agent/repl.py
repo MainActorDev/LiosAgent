@@ -8,8 +8,24 @@ from rich.console import Console
 from rich.prompt import Prompt
 from rich.panel import Panel
 from rich.markdown import Markdown
+from pygments.lexer import RegexLexer
+from pygments.token import Token
 
 console = Console()
+
+class LiosLexer(RegexLexer):
+    name = 'Lios'
+    aliases = ['lios']
+    filenames = []
+
+    tokens = {
+        'root': [
+            (r'^/\w+', Token.Keyword),        # Slash commands
+            (r'@[\w./-]+', Token.Name.Class), # File paths
+            (r'[^/@\n]+', Token.Text),        # Standard text
+            (r'.', Token.Text),               # Fallback
+        ]
+    }
 
 class UniversalREPL:
     """

@@ -6,7 +6,6 @@ __pycache__/
 .workspaces/
 *.pem
 state.db*
-test_*.py
 scratch*.py
 simulate*.py
 read_*.py
