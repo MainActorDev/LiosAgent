@@ -15,3 +15,4 @@ state_out.txt
 error
 mock_*.json
 force_retry.py
+.worktrees/
