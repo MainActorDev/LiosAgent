@@ -26,6 +26,15 @@ app = typer.Typer(
 )
 console = Console()
 
+@app.callback(invoke_without_command=True)
+def main(ctx: typer.Context):
+    """
+    Lios-Agent: The Autonomous iOS Engineer CLI.
+    Run without commands to enter interactive mode.
+    """
+    if ctx.invoked_subcommand is None:
+        UniversalREPL.start_interactive_session()
+
 @app.command()
 def epic(
     name: str = typer.Argument(..., help="The name of the Epic to generate (e.g., habit-tracker)"),
