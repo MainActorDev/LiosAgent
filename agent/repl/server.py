@@ -13,6 +13,16 @@ async def websocket_endpoint(websocket: WebSocket):
     # Create an LLMBridge per connection so conversation history isn't shared
     llm_agent = LLMBridge()
 
+    # Send initial stats
+    await websocket.send_json({
+        "type": "stats",
+        "model": llm_agent.model_name,
+        "input_tokens": llm_agent.total_input_tokens,
+        "output_tokens": llm_agent.total_output_tokens,
+        "total_tokens": llm_agent.total_tokens,
+        "cost": llm_agent.total_cost,
+    })
+
     try:
         while True:
             data = await websocket.receive_json()
@@ -46,6 +56,16 @@ async def websocket_endpoint(websocket: WebSocket):
                     "type": "chunk"
                 }
                 await websocket.send_json(response_data)
+
+            # Stream finished, send updated stats
+            await websocket.send_json({
+                "type": "stats",
+                "model": llm_agent.model_name,
+                "input_tokens": llm_agent.total_input_tokens,
+                "output_tokens": llm_agent.total_output_tokens,
+                "total_tokens": llm_agent.total_tokens,
+                "cost": llm_agent.total_cost,
+            })
 
     except WebSocketDisconnect:
         pass
