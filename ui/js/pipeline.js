@@ -137,6 +137,7 @@ export function usePipeline(bus, sendCommand) {
             node.status = 'gated';
             node.gateId = payload.gate_id;
         }
+        status.value = 'gated';
     }
 
     function onGateResponse(event) {
@@ -148,6 +149,7 @@ export function usePipeline(bus, sendCommand) {
             node.status = 'running';
             delete node.gateId;
         }
+        status.value = 'running';
     }
 
     // --- Subscribe to events ---
