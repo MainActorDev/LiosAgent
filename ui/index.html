@@ -1758,7 +1758,18 @@
         
         ws.onmessage = (event) => {
           const data = JSON.parse(event.data);
-          messages.value.push({ role: 'assistant', text: data.text });
+          
+          if (data.type === 'chunk') {
+            const lastMsg = messages.value[messages.value.length - 1];
+            if (lastMsg && lastMsg.role === 'assistant') {
+              lastMsg.text += data.text;
+            } else {
+              messages.value.push({ role: 'assistant', text: data.text });
+            }
+          } else if (data.type === 'stats') {
+             // We'll wire this in Task 3
+             console.log("Stats received:", data);
+          }
           scrollToBottom();
         };
       });
