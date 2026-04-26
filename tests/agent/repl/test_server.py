@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import MagicMock, patch
@@ -127,3 +129,61 @@ class TestGateManagerIntegration:
     def test_gate_manager_shares_bus(self):
         from agent.repl.server import bus, gate_manager
         assert gate_manager._bus is bus
+
+
+class TestGateWebSocketRoundTrip:
+    """Full gate round-trip via WebSocket."""
+
+    def test_gate_response_resolves_pending_gate(self):
+        from agent.repl.server import bus, gate_manager
+
+        loop = asyncio.new_event_loop()
+        try:
+            # Create a pending gate
+            future = gate_manager.request_gate(
+                gate_id="ws-gate-001",
+                run_id="run-ws",
+                node="blueprint_approval_gate",
+                title="Approve Blueprint",
+                description="Review.",
+                loop=loop,
+            )
+
+            # Simulate what WSManager does when it receives gate.response command
+            bus.emit("gate.response", {
+                "gate_id": "ws-gate-001",
+                "approved": True,
+                "feedback": "",
+            })
+
+            assert future.done()
+            result = future.result()
+            assert result["approved"] is True
+        finally:
+            # Clean up any remaining pending gates
+            gate_manager.cancel_all_gates()
+            loop.close()
+
+    def test_gate_request_broadcasts_to_bus(self):
+        from agent.repl.server import bus, gate_manager
+
+        received = []
+        bus.on("gate.request", lambda e: received.append(e))
+
+        loop = asyncio.new_event_loop()
+        try:
+            future = gate_manager.request_gate(
+                gate_id="ws-gate-002",
+                run_id="run-ws",
+                node="push",
+                title="Approve Push",
+                description="Push to remote?",
+                loop=loop,
+            )
+
+            assert len(received) == 1
+            assert received[0].payload["gate_id"] == "ws-gate-002"
+            assert received[0].payload["node"] == "push"
+        finally:
+            gate_manager.cancel_all_gates()
+            loop.close()
