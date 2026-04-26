@@ -28,7 +28,7 @@ export function useGates(bus, sendCommand) {
       title: payload.title,
       description: payload.description,
       context: payload.context || {},
-      timestamp: payload.timestamp || Date.now(),
+      timestamp: payload.timestamp || Date.now() / 1000,
     });
   }
 

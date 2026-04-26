@@ -147,7 +147,7 @@ export function usePipeline(bus, sendCommand) {
         if (node) {
             // Return to running — the graph will resume and node_exit will set final status
             node.status = 'running';
-            delete node.gateId;
+            node.gateId = null;
         }
         status.value = 'running';
     }

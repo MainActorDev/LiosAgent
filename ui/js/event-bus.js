@@ -74,7 +74,7 @@ export class EventBus {
   _dispatch(event) {
     const toRemove = [];
     for (const [id, sub] of this._subs) {
-      if (this._matches(event.type || event.event_type, sub.pattern)) {
+      if (this._matches(event.event_type || event.type, sub.pattern)) {
         sub.callback(event);
         if (sub.once) toRemove.push(id);
       }
