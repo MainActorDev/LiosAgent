@@ -187,3 +187,64 @@ class TestGateWebSocketRoundTrip:
         finally:
             gate_manager.cancel_all_gates()
             loop.close()
+
+
+class TestToolEventWebSocketFlow:
+    """E2E tests for tool event flow through WebSocket."""
+
+    @pytest.mark.asyncio
+    async def test_tool_start_event_reaches_websocket(self) -> None:
+        """Verify tool.start events are broadcast to WebSocket clients."""
+        from agent.event_bus import EventBus
+        from agent.tool_events import ToolEventEmitter
+
+        bus = EventBus()
+        emitter = ToolEventEmitter(bus=bus)
+
+        received: list = []
+        bus.on("tool.start", lambda e: received.append(e))
+
+        emitter.start(
+            tool_call_id="tc_e2e_001",
+            run_id="run_e2e",
+            tool_name="Write",
+            input_data={"filePath": "test.py", "content": "hello"},
+            node="architect_coder",
+        )
+
+        assert len(received) == 1
+        event = received[0]
+        assert event.type == "tool.start"
+        assert event.payload["tool_call_id"] == "tc_e2e_001"
+        assert event.payload["tool_name"] == "Write"
+        assert event.payload["node"] == "architect_coder"
+        assert event.correlation_id == "run_e2e"
+
+    @pytest.mark.asyncio
+    async def test_file_write_event_reaches_websocket(self) -> None:
+        """Verify file.write events are broadcast to WebSocket clients."""
+        from agent.event_bus import EventBus
+        from agent.tool_events import ToolEventEmitter
+
+        bus = EventBus()
+        emitter = ToolEventEmitter(bus=bus)
+
+        received: list = []
+        bus.on("file.write", lambda e: received.append(e))
+
+        emitter.file_write(
+            tool_call_id="tc_e2e_002",
+            run_id="run_e2e",
+            path="src/app.py",
+            diff="+print('hello')",
+            lines_added=1,
+            lines_removed=0,
+            is_new_file=True,
+        )
+
+        assert len(received) == 1
+        event = received[0]
+        assert event.type == "file.write"
+        assert event.payload["path"] == "src/app.py"
+        assert event.payload["is_new_file"] is True
+        assert event.payload["lines_added"] == 1
