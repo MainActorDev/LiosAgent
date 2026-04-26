@@ -1,0 +1,198 @@
+/* ── Gate Approval Dialog ──────────────────────────────────────── */
+
+.gate-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(11, 17, 32, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(4px);
+  animation: gate-fade-in var(--transition-normal) ease-out;
+}
+
+@keyframes gate-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.gate-dialog {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-active);
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 480px;
+  margin: 0 24px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  animation: gate-slide-up var(--transition-normal) ease-out;
+}
+
+@keyframes gate-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Header ────────────────────────────────────────────────────── */
+
+.gate-dialog-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.gate-dialog-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--accent-amber);
+  flex-shrink: 0;
+}
+
+.gate-dialog-title {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.gate-dialog-node {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+
+/* ── Body ──────────────────────────────────────────────────────── */
+
+.gate-dialog-body {
+  padding: 16px 20px;
+}
+
+.gate-dialog-description {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin: 0 0 12px;
+}
+
+.gate-dialog-context {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.gate-context-item {
+  display: flex;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.gate-context-key {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.gate-context-value {
+  color: var(--text-secondary);
+}
+
+.gate-feedback-input {
+  width: 100%;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  padding: 10px 12px;
+  resize: vertical;
+  min-height: 60px;
+  transition: border-color var(--transition-fast);
+  box-sizing: border-box;
+}
+
+.gate-feedback-input::placeholder {
+  color: var(--text-muted);
+}
+
+.gate-feedback-input:focus {
+  outline: none;
+  border-color: var(--accent-amber);
+}
+
+/* ── Actions ───────────────────────────────────────────────────── */
+
+.gate-dialog-actions {
+  display: flex;
+  gap: 10px;
+  padding: 12px 20px 16px;
+  border-top: 1px solid var(--border-subtle);
+  justify-content: flex-end;
+}
+
+.gate-btn {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 20px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.gate-btn-reject {
+  background: transparent;
+  border-color: var(--border-active);
+  color: var(--text-secondary);
+}
+
+.gate-btn-reject:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: var(--accent-red);
+  color: var(--accent-red);
+}
+
+.gate-btn-approve {
+  background: var(--accent-green);
+  color: var(--bg-deep);
+}
+
+.gate-btn-approve:hover {
+  background: #16a34a;
+}
+
+/* ── Queue Indicator ───────────────────────────────────────────── */
+
+.gate-queue-indicator {
+  text-align: center;
+  padding: 8px 20px 12px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--text-muted);
+}
