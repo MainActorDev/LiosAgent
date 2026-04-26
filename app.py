@@ -24,5 +24,5 @@ if __name__ == '__main__':
     # Wait for the server to be ready before starting the webview
     wait_for_server()
 
-    webview.create_window('Lios Agent CLI', 'http://127.0.0.1:8123', width=1200, height=800)
+    window = webview.create_window('Lios Agent CLI', 'http://127.0.0.1:8123', width=1200, height=800)
     webview.start()
