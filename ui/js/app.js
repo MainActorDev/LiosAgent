@@ -7,6 +7,7 @@
 import { EventBus } from './event-bus.js';
 import { usePipeline } from './pipeline.js';
 import { useGates } from './gates.js';
+import { useTools } from './tools.js';
 
 const { createApp, ref, onMounted, nextTick, computed } = Vue;
 
@@ -159,6 +160,7 @@ createApp({
 
     const pipeline = usePipeline(bus, sendCommand);
     const gates = useGates(bus, sendCommand);
+    const tools = useTools(bus);
     const gateFeedback = Vue.ref('');
 
     // Format duration helper
@@ -234,6 +236,7 @@ createApp({
       toggleSidebar,
       pipeline,
       gates,
+      tools,
       gateFeedback,
       pipelineInput,
       formatDuration,
