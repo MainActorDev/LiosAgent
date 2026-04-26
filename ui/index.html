@@ -1555,8 +1555,7 @@
           </template>
         </div>
 
-        <!-- Thinking State Demo -->
-        <div class="thinking">
+        <div class="thinking" v-if="isThinking">
           <div class="thinking-spinner"></div>
           <span class="thinking-text">Thinking...</span>
         </div>
@@ -1573,11 +1572,11 @@
                 <span class="status-dot"></span>
                 <span>Connected</span>
               </div>
-              <span>gpt-4o</span>
+              <span>{{ stats.model }}</span>
             </div>
             <div class="status-bar-right">
-              <span>1.2k tokens</span>
-              <span>$0.003</span>
+              <span>{{ stats.totalTokens }} tokens</span>
+              <span>${{ stats.cost.toFixed(4) }}</span>
             </div>
           </div>
         </div>
@@ -1607,6 +1606,7 @@
         cost: 0.0,
       });
       const activeTools = ref([]);
+      const isThinking = ref(false);
       let ws = null;
 
       onMounted(() => {
@@ -1614,45 +1614,56 @@
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         ws = new WebSocket(`${protocol}//${window.location.host}/ws/chat`);
         
-        ws.onmessage = (event) => {
-          const data = JSON.parse(event.data);
-          
-          if (data.type === 'chunk') {
-            const lastMsg = messages.value[messages.value.length - 1];
-            if (lastMsg && lastMsg.role === 'assistant') {
-              lastMsg.text += data.text;
-            } else {
-              messages.value.push({ role: 'assistant', text: data.text });
+          ws.onmessage = (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              
+              if (data.type === 'chunk') {
+                isThinking.value = false;
+                const lastMsg = messages.value[messages.value.length - 1];
+                if (lastMsg && lastMsg.role === 'assistant') {
+                  lastMsg.text += data.text;
+                } else {
+                  messages.value.push({ role: 'assistant', text: data.text });
+                }
+                scrollToBottom();
+              } else if (data.type === 'stats') {
+                stats.value = {
+                  model: data.model || 'Unknown',
+                  inputTokens: data.input_tokens || 0,
+                  outputTokens: data.output_tokens || 0,
+                  totalTokens: data.total_tokens || 0,
+                  cost: data.cost || 0.0,
+                };
+              }
+            } catch (err) {
+              // Ignore non-json or stats string messages
+              if (event.data.includes("cost") || event.data.includes("tokens")) {
+                console.log("Ignored stats text string", event.data);
+              } else {
+                console.error("Failed to parse websocket message", err);
+              }
             }
-          } else if (data.type === 'stats') {
-            stats.value = {
-              model: data.model || 'Unknown',
-              inputTokens: data.input_tokens || 0,
-              outputTokens: data.output_tokens || 0,
-              totalTokens: data.total_tokens || 0,
-              cost: data.cost || 0.0,
-            };
-          }
-          scrollToBottom();
-        };
+          };
       });
 
-      const scrollToBottom = async () => {
-        await nextTick();
-        const terminalBody = document.querySelector('.terminal-body');
-        if (terminalBody) {
-          terminalBody.scrollTop = terminalBody.scrollHeight;
-        }
-      };
+        const scrollToBottom = async () => {
+          await nextTick();
+          const terminalBody = document.querySelector('.terminal-body');
+          if (terminalBody) {
+            terminalBody.scrollTop = terminalBody.scrollHeight;
+          }
+        };
 
-      const sendMessage = () => {
-        if (!inputText.value.trim() || !ws) return;
-        
-        messages.value.push({ role: 'user', text: inputText.value });
-        ws.send(JSON.stringify({ text: inputText.value }));
-        inputText.value = '';
-        scrollToBottom();
-      };
+        const sendMessage = () => {
+          if (!inputText.value.trim() || !ws) return;
+          
+          messages.value.push({ role: 'user', text: inputText.value });
+          ws.send(JSON.stringify({ text: inputText.value }));
+          inputText.value = '';
+          isThinking.value = true;
+          scrollToBottom();
+        };
 
       return { 
         messages, 
@@ -1661,7 +1672,8 @@
         conversations, 
         files, 
         stats, 
-        activeTools 
+        activeTools,
+        isThinking
       };
     }
   }).mount('#app');
