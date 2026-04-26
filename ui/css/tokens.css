@@ -1,0 +1,56 @@
+/* ================================================================
+   DESIGN SYSTEM TOKENS
+   ================================================================ */
+:root {
+  --bg-deep:       #0B1120;
+  --bg-primary:    #0F172A;
+  --bg-surface:    #1E293B;
+  --bg-elevated:   #334155;
+  --accent-green:  #22C55E;
+  --accent-cyan:   #06B6D4;
+  --accent-purple: #A78BFA;
+  --accent-amber:  #F59E0B;
+  --accent-red:    #EF4444;
+  --text-primary:  #F8FAFC;
+  --text-secondary:#94A3B8;
+  --text-muted:    #64748B;
+  --border-subtle: #1E293B;
+  --border-active: #334155;
+
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+
+  --sidebar-width: 280px;
+  --activity-bar-width: 48px;
+}
+
+/* ================================================================
+   RESET & BASE
+   ================================================================ */
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-mono);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  height: 100vh;
+  margin: 0;
+  overflow: hidden;
+}

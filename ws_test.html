@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<body>
+<script>
+  const ws = new WebSocket(`ws://localhost:8000/ws/chat`);
+  ws.onopen = () => {
+    console.log("Connected");
+    ws.send(JSON.stringify({text: "Hello!"}));
+  };
+  ws.onmessage = (evt) => console.log(evt.data);
+</script>
+</body>
+</html>
