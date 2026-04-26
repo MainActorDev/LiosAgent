@@ -1,4 +1,7 @@
 import os
+import asyncio
+import time
+import functools
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, END
@@ -9,7 +12,8 @@ from agent.state import AgentState
 from agent.tools import clone_isolated_workspace, post_github_comment, capture_simulator_screenshot, validate_ui_with_vision, fetch_external_link, navigate_to_target_view
 from agent.llm_factory import get_llm
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
+from agent.graph_events import GraphEventEmitter
 
 class FileModification(BaseModel):
     filepath: str = Field(description="Absolute path to the file.")
@@ -28,6 +32,64 @@ class FeatureBlueprint(BaseModel):
         default_factory=list,
         description="List of design tokens/architecture patterns utilized. LEAVE EMPTY for pure documentation/config tasks."
     )
+
+
+def _wrap_node_with_events(
+    node_fn,
+    node_name: str,
+    emitter: Optional[GraphEventEmitter],
+    run_id: str,
+):
+    """Wrap a graph node function to emit enter/exit events.
+
+    Works with both sync and async node functions.
+    If emitter is None, returns the original function unchanged.
+    """
+    if emitter is None:
+        return node_fn
+
+    if asyncio.iscoroutinefunction(node_fn):
+        @functools.wraps(node_fn)
+        async def async_wrapper(state):
+            emitter.node_enter(run_id=run_id, node=node_name)
+            t0 = time.monotonic()
+            try:
+                result = await node_fn(state)
+                duration_ms = (time.monotonic() - t0) * 1000
+                emitter.node_exit(
+                    run_id=run_id, node=node_name,
+                    duration_ms=duration_ms, status="completed",
+                )
+                return result
+            except Exception:
+                duration_ms = (time.monotonic() - t0) * 1000
+                emitter.node_exit(
+                    run_id=run_id, node=node_name,
+                    duration_ms=duration_ms, status="error",
+                )
+                raise
+        return async_wrapper
+    else:
+        @functools.wraps(node_fn)
+        def sync_wrapper(state):
+            emitter.node_enter(run_id=run_id, node=node_name)
+            t0 = time.monotonic()
+            try:
+                result = node_fn(state)
+                duration_ms = (time.monotonic() - t0) * 1000
+                emitter.node_exit(
+                    run_id=run_id, node=node_name,
+                    duration_ms=duration_ms, status="completed",
+                )
+                return result
+            except Exception:
+                duration_ms = (time.monotonic() - t0) * 1000
+                emitter.node_exit(
+                    run_id=run_id, node=node_name,
+                    duration_ms=duration_ms, status="error",
+                )
+                raise
+        return sync_wrapper
 
 
 def initialize_workspace_node(state: AgentState):
@@ -977,27 +1039,32 @@ def should_continue_stories(state: AgentState) -> str:
         return "architect_coder" 
     return "ui_check"
 
-def build_graph(checkpointer=None):
+def build_graph(checkpointer=None, event_emitter: Optional[GraphEventEmitter] = None, run_id: str = ""):
     """Compiles the LangGraph State Machine."""
     graph = StateGraph(AgentState)
-    
-    graph.add_node("vetting", issue_vetting_node)
-    graph.add_node("await_clarification", await_clarification_node)
-    graph.add_node("initialize", initialize_workspace_node)
-    graph.add_node("context_aggregator", context_aggregator_node)
-    graph.add_node("planner", planner_node)
-    graph.add_node("blueprint_presentation", blueprint_presentation_node)
-    graph.add_node("blueprint_approval_gate", blueprint_approval_gate)
-    graph.add_node("prd_decomposer", prd_decomposer_node)
-    graph.add_node("story_selector", story_selector_node)
-    graph.add_node("story_commit", story_commit_node)
-    graph.add_node("story_progress", story_progress_node)
-    graph.add_node("story_skip", story_skip_node)
-    graph.add_node("architect_coder", architect_coder_node)
-    graph.add_node("validator", validator_node)
-    graph.add_node("ui_vision_check", ui_vision_validator_node)        # Stage 1: Boot, build, capture initial screenshot
-    graph.add_node("maestro_navigation_generator", maestro_navigation_generator_node)  # Stage 2: Navigate to target view
-    graph.add_node("vision_validation", vision_validation_node)        # Stage 3: Run Vision LLM check
+
+    def add_instrumented_node(name, fn):
+        """Add a node to the graph, wrapping it with event emission if emitter is present."""
+        wrapped = _wrap_node_with_events(fn, name, event_emitter, run_id)
+        graph.add_node(name, wrapped)
+
+    add_instrumented_node("vetting", issue_vetting_node)
+    add_instrumented_node("await_clarification", await_clarification_node)
+    add_instrumented_node("initialize", initialize_workspace_node)
+    add_instrumented_node("context_aggregator", context_aggregator_node)
+    add_instrumented_node("planner", planner_node)
+    add_instrumented_node("blueprint_presentation", blueprint_presentation_node)
+    add_instrumented_node("blueprint_approval_gate", blueprint_approval_gate)
+    add_instrumented_node("prd_decomposer", prd_decomposer_node)
+    add_instrumented_node("story_selector", story_selector_node)
+    add_instrumented_node("story_commit", story_commit_node)
+    add_instrumented_node("story_progress", story_progress_node)
+    add_instrumented_node("story_skip", story_skip_node)
+    add_instrumented_node("architect_coder", architect_coder_node)
+    add_instrumented_node("validator", validator_node)
+    add_instrumented_node("ui_vision_check", ui_vision_validator_node)        # Stage 1: Boot, build, capture initial screenshot
+    add_instrumented_node("maestro_navigation_generator", maestro_navigation_generator_node)  # Stage 2: Navigate to target view
+    add_instrumented_node("vision_validation", vision_validation_node)        # Stage 3: Run Vision LLM check
     
     def push_node(state: AgentState):
         workspace_path = state.get("workspace_path")
@@ -1086,7 +1153,7 @@ def build_graph(checkpointer=None):
         else:
             return {"history": ["Push aborted or skipped. Workflow halted."], "halted": True, "retries_count": 0}
 
-    graph.add_node("push", push_node) 
+    add_instrumented_node("push", push_node) 
     
     # Wiring the flow
     graph.set_entry_point("vetting")
