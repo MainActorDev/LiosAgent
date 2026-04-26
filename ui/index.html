@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="/css/chat.css" />
   <link rel="stylesheet" href="/css/pipeline.css" />
   <link rel="stylesheet" href="/css/gates.css" />
+  <link rel="stylesheet" href="/css/tools.css" />
 
   <!-- Vue 3 CDN -->
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
@@ -295,6 +296,78 @@
             </div>
             <div class="agent-content" v-html="msg.text"></div>
           </template>
+
+            <!-- Tool Call Cards (shown after agent messages) -->
+            <template v-if="msg.role === 'agent'">
+              <div
+                v-for="tc in tools.toolCalls.value.filter(t => t.run_id === pipeline.runId.value)"
+                :key="tc.tool_call_id"
+                class="tool-call-card"
+                :class="{
+                  'tool-call--running': tc.status === 'running',
+                  'tool-call--success': tc.status === 'success',
+                  'tool-call--error': tc.status === 'error',
+                  'tool-call--expanded': tc.expanded,
+                }"
+              >
+                <!-- Header (always visible, click to expand) -->
+                <div class="tool-call-header" @click="tools.toggleToolCall(tc.tool_call_id)">
+                  <span class="tool-call-icon">
+                    <span v-if="tc.status === 'running'" class="tool-call-spinner"></span>
+                    <span v-else>{{ tools.getToolIcon(tc.tool_name) }}</span>
+                  </span>
+                  <span class="tool-call-name">{{ tc.tool_name }}</span>
+                  <span class="tool-call-meta">
+                    <span class="tool-call-duration">{{ tools.formatToolDuration(tc.duration_ms) }}</span>
+                    <span class="tool-call-chevron">&#9654;</span>
+                  </span>
+                </div>
+
+                <!-- Body (collapsible) -->
+                <div class="tool-call-body">
+                  <!-- Input section -->
+                  <div class="tool-call-section">
+                    <div class="tool-call-section-label">Input</div>
+                    <div class="tool-call-section-content">{{ JSON.stringify(tc.input_data, null, 2) }}</div>
+                  </div>
+
+                  <!-- Output section (only when completed) -->
+                  <div v-if="tc.output_data" class="tool-call-section">
+                    <div class="tool-call-section-label">Output</div>
+                    <div class="tool-call-section-content">{{ JSON.stringify(tc.output_data, null, 2) }}</div>
+                  </div>
+
+                  <!-- Error section -->
+                  <div v-if="tc.error" class="tool-call-error-text">{{ tc.error }}</div>
+
+                  <!-- File diff viewer (for Write/Edit tools) -->
+                  <template v-if="tools.getFileChangeForTool(tc.tool_call_id) && tools.getFileChangeForTool(tc.tool_call_id).type === 'write'">
+                    <div class="file-diff-viewer file-diff--expanded">
+                      <div class="file-diff-header">
+                        <span class="file-diff-path">{{ tools.getFileChangeForTool(tc.tool_call_id).path }}</span>
+                        <span class="file-diff-stats">
+                          <span class="file-diff-added">+{{ tools.getFileChangeForTool(tc.tool_call_id).lines_added }}</span>
+                          <span class="file-diff-removed">-{{ tools.getFileChangeForTool(tc.tool_call_id).lines_removed }}</span>
+                        </span>
+                        <span v-if="tools.getFileChangeForTool(tc.tool_call_id).is_new_file" class="file-diff-badge">new</span>
+                      </div>
+                      <div class="file-diff-body">
+                        <div
+                          v-for="line in tools.parseDiffLines(tools.getFileChangeForTool(tc.tool_call_id).diff)"
+                          :key="line.number"
+                          class="file-diff-line"
+                          :class="'file-diff-line--' + line.type"
+                        >
+                          <span class="file-diff-line-number">{{ line.number }}</span>
+                          <span class="file-diff-line-content">{{ line.content }}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+
         </div>
 
         <div class="thinking" v-if="isThinking">
@@ -315,6 +388,10 @@
                 <span>{{ wsConnected ? 'Connected' : 'Disconnected' }}</span>
               </div>
               <span>{{ stats.model }}</span>
+              <span v-if="tools.hasActiveTools.value" class="tool-calls-summary">
+                <span class="tool-calls-count">{{ tools.activeToolCalls.value.length }}</span>
+                tool{{ tools.activeToolCalls.value.length !== 1 ? 's' : '' }} running
+              </span>
             </div>
             <div class="status-bar-right">
               <span>{{ stats.totalTokens }} tokens</span>
