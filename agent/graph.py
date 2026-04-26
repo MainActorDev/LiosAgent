@@ -1,5 +1,6 @@
 import os
 import asyncio
+import contextvars
 import time
 import functools
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -16,6 +17,15 @@ from typing import List, Optional
 from agent.graph_events import GraphEventEmitter
 from agent.tool_output_parser import ToolOutputParser
 from agent.tool_events import ToolEventEmitter
+
+# Context variables for passing event bus and run_id to node functions
+# without polluting the LangGraph state dict (which must remain serializable).
+_current_event_bus: contextvars.ContextVar[Optional["EventBus"]] = contextvars.ContextVar(
+    "_current_event_bus", default=None
+)
+_current_run_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "_current_run_id", default=""
+)
 
 class FileModification(BaseModel):
     filepath: str = Field(description="Absolute path to the file.")
@@ -56,10 +66,14 @@ def _wrap_node_with_events(
             emitter.node_enter(run_id=run_id, node=node_name)
             t0 = time.monotonic()
             try:
-                # Inject event bus and run_id for tool event emission
-                state["_event_bus"] = emitter._bus if emitter else None
-                state["_run_id"] = run_id
-                result = await node_fn(state)
+                # Set context variables for tool event emission
+                _bus_token = _current_event_bus.set(emitter._bus)
+                _rid_token = _current_run_id.set(run_id)
+                try:
+                    result = await node_fn(state)
+                finally:
+                    _current_event_bus.reset(_bus_token)
+                    _current_run_id.reset(_rid_token)
                 duration_ms = (time.monotonic() - t0) * 1000
                 emitter.node_exit(
                     run_id=run_id, node=node_name,
@@ -80,10 +94,14 @@ def _wrap_node_with_events(
             emitter.node_enter(run_id=run_id, node=node_name)
             t0 = time.monotonic()
             try:
-                # Inject event bus and run_id for tool event emission
-                state["_event_bus"] = emitter._bus if emitter else None
-                state["_run_id"] = run_id
-                result = node_fn(state)
+                # Set context variables for tool event emission
+                _bus_token = _current_event_bus.set(emitter._bus)
+                _rid_token = _current_run_id.set(run_id)
+                try:
+                    result = node_fn(state)
+                finally:
+                    _current_event_bus.reset(_bus_token)
+                    _current_run_id.reset(_rid_token)
                 duration_ms = (time.monotonic() - t0) * 1000
                 emitter.node_exit(
                     run_id=run_id, node=node_name,
@@ -506,9 +524,9 @@ After completing, ensure all acceptance criteria are met."""
         
         captured_output = []
         
-        # Initialize tool event parsing
-        _event_bus = state.get("_event_bus")
-        _run_id = state.get("_run_id", "")
+        # Initialize tool event parsing via context variables
+        _event_bus = _current_event_bus.get(None)
+        _run_id = _current_run_id.get("")
         tool_parser = ToolOutputParser(run_id=_run_id) if _run_id else None
         tool_emitter = ToolEventEmitter(bus=_event_bus) if _event_bus else None
         
