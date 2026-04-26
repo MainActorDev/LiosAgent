@@ -1,7 +1,7 @@
 """Typed event emitter for tool call lifecycle events.
 
-Emits tool.start, tool.result, and tool.error events through the EventBus.
-Safe to use without a bus (all methods become no-ops).
+Emits tool.start, tool.result, tool.error, file.read, and file.write events
+through the EventBus. Safe to use without a bus (all methods become no-ops).
 """
 
 from __future__ import annotations
@@ -85,3 +85,51 @@ class ToolEventEmitter:
         if node is not None:
             payload["node"] = node
         self._bus.emit("tool.error", payload, correlation_id=run_id)
+
+    def file_read(
+        self,
+        *,
+        tool_call_id: str,
+        run_id: str,
+        path: str,
+        lines: int,
+        preview: Optional[str] = None,
+    ) -> None:
+        """Emit file.read when a file is read by a tool."""
+        if self._bus is None:
+            return
+        payload: dict[str, Any] = {
+            "tool_call_id": tool_call_id,
+            "run_id": run_id,
+            "path": path,
+            "lines": lines,
+        }
+        if preview is not None:
+            payload["preview"] = preview
+        self._bus.emit("file.read", payload, correlation_id=run_id)
+
+    def file_write(
+        self,
+        *,
+        tool_call_id: str,
+        run_id: str,
+        path: str,
+        diff: str,
+        lines_added: int,
+        lines_removed: int,
+        is_new_file: bool = False,
+    ) -> None:
+        """Emit file.write when a file is written or modified by a tool."""
+        if self._bus is None:
+            return
+        payload: dict[str, Any] = {
+            "tool_call_id": tool_call_id,
+            "run_id": run_id,
+            "path": path,
+            "diff": diff,
+            "lines_added": lines_added,
+            "lines_removed": lines_removed,
+        }
+        if is_new_file:
+            payload["is_new_file"] = True
+        self._bus.emit("file.write", payload, correlation_id=run_id)

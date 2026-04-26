@@ -157,3 +157,108 @@ class TestToolEventEmitterNoBus:
             error="fail",
         )
         # No exception means pass
+
+    def test_no_bus_file_events_do_not_raise(self) -> None:
+        emitter = ToolEventEmitter(bus=None)
+
+        emitter.file_read(
+            tool_call_id="tc_010",
+            run_id="run_abc",
+            path="src/main.py",
+            lines=10,
+        )
+        emitter.file_write(
+            tool_call_id="tc_020",
+            run_id="run_abc",
+            path="src/utils.py",
+            diff="+new line",
+            lines_added=1,
+            lines_removed=0,
+        )
+        # No exception means pass
+
+
+class TestToolEventEmitterFileRead:
+    """Tests for file.read event emission."""
+
+    def test_emits_file_read_event(self) -> None:
+        bus = EventBus()
+        emitter = ToolEventEmitter(bus=bus)
+        received: list = []
+        bus.on("file.read", lambda e: received.append(e))
+
+        emitter.file_read(
+            tool_call_id="tc_010",
+            run_id="run_abc",
+            path="src/main.py",
+            lines=42,
+        )
+
+        assert len(received) == 1
+        assert received[0].type == "file.read"
+        assert received[0].payload["tool_call_id"] == "tc_010"
+        assert received[0].payload["path"] == "src/main.py"
+        assert received[0].payload["lines"] == 42
+        assert received[0].correlation_id == "run_abc"
+
+    def test_file_read_with_preview(self) -> None:
+        bus = EventBus()
+        emitter = ToolEventEmitter(bus=bus)
+        received: list = []
+        bus.on("file.read", lambda e: received.append(e))
+
+        emitter.file_read(
+            tool_call_id="tc_011",
+            run_id="run_abc",
+            path="README.md",
+            lines=10,
+            preview="# My Project\n\nA description...",
+        )
+
+        assert received[0].payload["preview"] == "# My Project\n\nA description..."
+
+
+class TestToolEventEmitterFileWrite:
+    """Tests for file.write event emission."""
+
+    def test_emits_file_write_event(self) -> None:
+        bus = EventBus()
+        emitter = ToolEventEmitter(bus=bus)
+        received: list = []
+        bus.on("file.write", lambda e: received.append(e))
+
+        emitter.file_write(
+            tool_call_id="tc_020",
+            run_id="run_abc",
+            path="src/utils.py",
+            diff="@@ -1,3 +1,5 @@\n+import os\n+\n def main():\n     pass",
+            lines_added=2,
+            lines_removed=0,
+        )
+
+        assert len(received) == 1
+        assert received[0].type == "file.write"
+        assert received[0].payload["tool_call_id"] == "tc_020"
+        assert received[0].payload["path"] == "src/utils.py"
+        assert received[0].payload["diff"].startswith("@@")
+        assert received[0].payload["lines_added"] == 2
+        assert received[0].payload["lines_removed"] == 0
+        assert received[0].correlation_id == "run_abc"
+
+    def test_file_write_new_file(self) -> None:
+        bus = EventBus()
+        emitter = ToolEventEmitter(bus=bus)
+        received: list = []
+        bus.on("file.write", lambda e: received.append(e))
+
+        emitter.file_write(
+            tool_call_id="tc_021",
+            run_id="run_abc",
+            path="src/new_module.py",
+            diff="+def hello():\n+    return 'world'",
+            lines_added=2,
+            lines_removed=0,
+            is_new_file=True,
+        )
+
+        assert received[0].payload["is_new_file"] is True
