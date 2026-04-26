@@ -1375,64 +1375,22 @@
               <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
             Conversations
-            <span class="accordion-trigger-count">5</span>
+            <span class="accordion-trigger-count">{{ conversations.length }}</span>
           </button>
           <div class="accordion-body" aria-hidden="false" style="max-height: 400px;">
             <div class="conv-list">
-              <!-- Active conversation -->
-              <div class="conv-item conv-item--active">
-                <svg class="conv-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"></path>
-                </svg>
-                <div class="conv-meta">
-                  <div class="conv-title">REPL Architecture Refactor</div>
-                  <div class="conv-subtitle">Explain the architecture of @agent/repl.py</div>
-                </div>
-                <span class="conv-time">now</span>
+              <div v-if="conversations.length === 0" style="padding: 10px; font-size: 11px; color: var(--text-muted); text-align: center;">
+                No recent conversations
               </div>
-
-              <div class="conv-item">
+              <div v-else v-for="conv in conversations" :key="conv.id" class="conv-item" :class="{ 'conv-item--active': conv.active }">
                 <svg class="conv-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"></path>
                 </svg>
                 <div class="conv-meta">
-                  <div class="conv-title">File Autocomplete Phase 2</div>
-                  <div class="conv-subtitle">Implement FileMentionCompleter</div>
+                  <div class="conv-title">{{ conv.title }}</div>
+                  <div class="conv-subtitle">{{ conv.subtitle }}</div>
                 </div>
-                <span class="conv-time">2h</span>
-              </div>
-
-              <div class="conv-item">
-                <svg class="conv-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"></path>
-                </svg>
-                <div class="conv-meta">
-                  <div class="conv-title">LLM Factory Config</div>
-                  <div class="conv-subtitle">Add multi-provider support</div>
-                </div>
-                <span class="conv-time">5h</span>
-              </div>
-
-              <div class="conv-item">
-                <svg class="conv-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"></path>
-                </svg>
-                <div class="conv-meta">
-                  <div class="conv-title">Tool Graph Debugging</div>
-                  <div class="conv-subtitle">Fix cycle detection in agent graph</div>
-                </div>
-                <span class="conv-time">1d</span>
-              </div>
-
-              <div class="conv-item">
-                <svg class="conv-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"></path>
-                </svg>
-                <div class="conv-meta">
-                  <div class="conv-title">Initial Project Setup</div>
-                  <div class="conv-subtitle">Bootstrap Lios Agent project</div>
-                </div>
-                <span class="conv-time">3d</span>
+                <span class="conv-time">{{ conv.time }}</span>
               </div>
             </div>
           </div>
@@ -1445,98 +1403,26 @@
               <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
             Files
-            <span class="accordion-trigger-count">~/project</span>
+            <span class="accordion-trigger-count">{{ files.length > 0 ? '~/project' : '0' }}</span>
           </button>
           <div class="accordion-body" aria-hidden="false" style="max-height: 400px;">
             <div class="file-tree">
-              <!-- Root level folders -->
-              <div class="file-tree-item file-tree-item--folder expanded" data-depth="0">
-                <svg class="folder-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <div v-if="files.length === 0" style="padding: 10px; font-size: 11px; color: var(--text-muted); text-align: center;">
+                No files
+              </div>
+              <div v-else v-for="file in files" :key="file.path" class="file-tree-item" :class="[file.type === 'folder' ? 'file-tree-item--folder' : 'file-tree-item--file', file.expanded ? 'expanded' : '']" :data-depth="file.depth">
+                <svg v-if="file.type === 'folder'" class="folder-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <polyline points="9 18 15 12 9 6"></polyline>
                 </svg>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg v-if="file.type === 'folder'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"></path>
                 </svg>
-                <span class="file-tree-item-name">agent/</span>
-              </div>
-
-              <div class="file-tree-item file-tree-item--file" data-depth="1">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"></path>
                   <polyline points="13 2 13 9 20 9"></polyline>
                 </svg>
-                <span class="file-tree-item-name">repl.py</span>
-                <span class="file-tree-item-badge file-tree-item-badge--modified">M</span>
-              </div>
-
-              <div class="file-tree-item file-tree-item--file" data-depth="1">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"></path>
-                  <polyline points="13 2 13 9 20 9"></polyline>
-                </svg>
-                <span class="file-tree-item-name">llm_factory.py</span>
-              </div>
-
-              <div class="file-tree-item file-tree-item--file" data-depth="1">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"></path>
-                  <polyline points="13 2 13 9 20 9"></polyline>
-                </svg>
-                <span class="file-tree-item-name">graph.py</span>
-              </div>
-
-              <div class="file-tree-item file-tree-item--folder" data-depth="1">
-                <svg class="folder-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="9 18 15 12 9 6"></polyline>
-                </svg>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"></path>
-                </svg>
-                <span class="file-tree-item-name">tools/</span>
-              </div>
-
-              <div class="file-tree-item file-tree-item--folder expanded" data-depth="0">
-                <svg class="folder-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="9 18 15 12 9 6"></polyline>
-                </svg>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"></path>
-                </svg>
-                <span class="file-tree-item-name">tests/</span>
-              </div>
-
-              <div class="file-tree-item file-tree-item--file" data-depth="1">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"></path>
-                  <polyline points="13 2 13 9 20 9"></polyline>
-                </svg>
-                <span class="file-tree-item-name">test_repl_completer.py</span>
-                <span class="file-tree-item-badge file-tree-item-badge--new">N</span>
-              </div>
-
-              <div class="file-tree-item file-tree-item--file" data-depth="1">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"></path>
-                  <polyline points="13 2 13 9 20 9"></polyline>
-                </svg>
-                <span class="file-tree-item-name">test_repl_history.py</span>
-                <span class="file-tree-item-badge file-tree-item-badge--modified">M</span>
-              </div>
-
-              <div class="file-tree-item file-tree-item--file" data-depth="0">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"></path>
-                  <polyline points="13 2 13 9 20 9"></polyline>
-                </svg>
-                <span class="file-tree-item-name">pyproject.toml</span>
-              </div>
-
-              <div class="file-tree-item file-tree-item--file" data-depth="0">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"></path>
-                  <polyline points="13 2 13 9 20 9"></polyline>
-                </svg>
-                <span class="file-tree-item-name">README.md</span>
+                <span class="file-tree-item-name">{{ file.name }}</span>
+                <span v-if="file.badge" class="file-tree-item-badge" :class="'file-tree-item-badge--' + file.badgeType">{{ file.badge }}</span>
               </div>
             </div>
           </div>
@@ -1558,8 +1444,7 @@
                 <div class="context-group-label">Model</div>
                 <div class="context-model">
                   <span class="context-model-dot"></span>
-                  <span class="context-model-name">gpt-4o</span>
-                  <span class="context-model-provider">OpenAI</span>
+                  <span class="context-model-name">{{ stats.model }}</span>
                 </div>
               </div>
 
@@ -1568,39 +1453,20 @@
                 <div class="context-group-label">Token Usage</div>
                 <div class="context-usage">
                   <div class="context-usage-row">
-                    <span class="context-usage-label">Used</span>
-                    <span class="context-usage-value">1,247 / 128k</span>
-                  </div>
-                  <div class="context-usage-bar">
-                    <div class="context-usage-fill context-usage-fill--tokens"></div>
+                    <span class="context-usage-label">Input</span>
+                    <span class="context-usage-value">{{ stats.inputTokens }}</span>
                   </div>
                   <div class="context-usage-row">
+                    <span class="context-usage-label">Output</span>
+                    <span class="context-usage-value">{{ stats.outputTokens }}</span>
+                  </div>
+                  <div class="context-usage-row">
+                    <span class="context-usage-label">Total</span>
+                    <span class="context-usage-value">{{ stats.totalTokens }}</span>
+                  </div>
+                  <div class="context-usage-row" style="margin-top: 4px;">
                     <span class="context-usage-label">Cost</span>
-                    <span class="context-usage-value">$0.003 / $1.00</span>
-                  </div>
-                  <div class="context-usage-bar">
-                    <div class="context-usage-fill context-usage-fill--cost"></div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Attached Files -->
-              <div class="context-group">
-                <div class="context-group-label">Attached Files</div>
-                <div class="context-files">
-                  <div class="context-file-item">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"></path>
-                      <polyline points="13 2 13 9 20 9"></polyline>
-                    </svg>
-                    <span class="context-file-item-name">agent/repl.py</span>
-                    <span class="context-file-item-size">186 ln</span>
-                    <button class="context-file-remove" title="Remove">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                      </svg>
-                    </button>
+                    <span class="context-usage-value">${{ stats.cost.toFixed(4) }}</span>
                   </div>
                 </div>
               </div>
@@ -1609,33 +1475,15 @@
               <div class="context-group">
                 <div class="context-group-label">Active Tools</div>
                 <div class="context-tools">
-                  <div class="context-tool-tag">
+                  <div v-if="activeTools.length === 0" style="font-size: 11px; color: var(--text-muted);">
+                    None
+                  </div>
+                  <div v-for="tool in activeTools" :key="tool" class="context-tool-tag">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"></path>
                       <polyline points="13 2 13 9 20 9"></polyline>
                     </svg>
-                    Read
-                  </div>
-                  <div class="context-tool-tag">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"></path>
-                      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                    </svg>
-                    Edit
-                  </div>
-                  <div class="context-tool-tag">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <polyline points="4 17 10 11 4 5"></polyline>
-                      <line x1="12" y1="19" x2="20" y2="19"></line>
-                    </svg>
-                    Bash
-                  </div>
-                  <div class="context-tool-tag">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <circle cx="11" cy="11" r="8"></circle>
-                      <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                    </svg>
-                    Search
+                    {{ tool }}
                   </div>
                 </div>
               </div>
@@ -1749,6 +1597,16 @@
         {role: 'assistant', text: 'Hello! I am Lios.'}
       ]);
       const inputText = ref('');
+      const conversations = ref([]);
+      const files = ref([]);
+      const stats = ref({
+        model: 'Unknown',
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        cost: 0.0,
+      });
+      const activeTools = ref([]);
       let ws = null;
 
       onMounted(() => {
@@ -1767,8 +1625,13 @@
               messages.value.push({ role: 'assistant', text: data.text });
             }
           } else if (data.type === 'stats') {
-             // We'll wire this in Task 3
-             console.log("Stats received:", data);
+            stats.value = {
+              model: data.model || 'Unknown',
+              inputTokens: data.input_tokens || 0,
+              outputTokens: data.output_tokens || 0,
+              totalTokens: data.total_tokens || 0,
+              cost: data.cost || 0.0,
+            };
           }
           scrollToBottom();
         };
@@ -1791,7 +1654,15 @@
         scrollToBottom();
       };
 
-      return { messages, inputText, sendMessage };
+      return { 
+        messages, 
+        inputText, 
+        sendMessage, 
+        conversations, 
+        files, 
+        stats, 
+        activeTools 
+      };
     }
   }).mount('#app');
 
