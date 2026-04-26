@@ -128,7 +128,8 @@ def execute_xcodebuild(workspace_path: str) -> str:
             build_cmd,
             cwd=workspace_path,
             capture_output=True,
-            text=True
+            text=True,
+            timeout=300 # 5 minute timeout for xcodebuild
         )
         
         if result.returncode == 0:
@@ -190,19 +191,23 @@ Diff:
             
         subprocess.run(["git", "commit", "-m", commit_message], cwd=workspace_path, check=True, capture_output=True)
         
-        # Authenticate the Remote if a token is available
-        if installation_id and repo_full_name:
-            app_id = os.environ.get("GITHUB_APP_ID")
-            pem_path = os.environ.get("GITHUB_PRIVATE_KEY_PATH", "./lios-agent.private-key.pem")
-            if app_id and os.path.exists(pem_path):
-                from github import GithubIntegration
-                with open(pem_path, 'r') as pem_file:
-                    private_key = pem_file.read()
-                integration = GithubIntegration(app_id, private_key)
-                access_token = integration.get_access_token(int(installation_id)).token
-                # Set the remote URL to use the x-access-token
-                auth_url = f"https://x-access-token:{access_token}@github.com/{repo_full_name}.git"
-                subprocess.run(["git", "remote", "set-url", "origin", auth_url], cwd=workspace_path, check=True, capture_output=True)
+        # Authenticate the Remote via the GitHub App so commits/pushes are authored by the bot
+        app_id = os.environ.get("GITHUB_APP_ID")
+        pem_path = os.environ.get("GITHUB_PRIVATE_KEY_PATH", "./lios-agent.private-key.pem")
+        repo_full_name = os.environ.get("GITHUB_REPO") or repo_full_name
+        
+        if app_id and os.path.exists(pem_path) and repo_full_name:
+            from github import GithubIntegration
+            with open(pem_path, 'r') as pem_file:
+                private_key = pem_file.read()
+            integration = GithubIntegration(app_id, private_key)
+            owner, repo_name = repo_full_name.split('/')
+            installation = integration.get_repo_installation(owner, repo_name)
+            access_token = integration.get_access_token(installation.id).token
+            
+            # Set the remote URL to use the x-access-token for seamless pushing
+            auth_url = f"https://x-access-token:{access_token}@github.com/{repo_full_name}.git"
+            subprocess.run(["git", "remote", "set-url", "origin", auth_url], cwd=workspace_path, check=True, capture_output=True)
                 
         # Push the branch to the remote origin
         push_result = subprocess.run(["git", "push", "-u", "origin", branch_name], cwd=workspace_path, check=True, capture_output=True, text=True)
@@ -210,27 +215,43 @@ Diff:
     except subprocess.CalledProcessError as e:
         return f"ERROR: Error during git operations: {e.stderr}"
 
-def post_github_comment(repo_full_name: str, issue_number: int, installation_id: str, message: str) -> str:
-    """Posts a comment on a GitHub issue using the GitHub App's credentials."""
+def post_github_comment(task_id: str, message: str) -> str:
+    """
+    Posts a structured markdown payload to a GitHub issue.
+    Dynamically authenticates as the GitHub App so comments are authored by the bot.
+    """
     app_id = os.environ.get("GITHUB_APP_ID")
     pem_path = os.environ.get("GITHUB_PRIVATE_KEY_PATH", "./lios-agent.private-key.pem")
+    repo_full_name = os.environ.get("GITHUB_REPO")
     
-    if not app_id or not os.path.exists(pem_path):
-        return "Error: GitHub App ID or PEM file missing."
+    if not app_id or not os.path.exists(pem_path) or not repo_full_name:
+        return "Warning: GitHub App credentials or GITHUB_REPO not set. Skipping bot comment."
         
     try:
+        # Determine if task_id is a valid issue number
+        if not task_id.isdigit():
+            return "Warning: Task ID is not an integer. Cannot post to an issue."
+            
         from github import GithubIntegration, Github
         with open(pem_path, 'r') as pem_file:
             private_key = pem_file.read()
             
         integration = GithubIntegration(app_id, private_key)
-        access_token = integration.get_access_token(int(installation_id)).token
+        owner, repo_name = repo_full_name.split('/')
+        installation = integration.get_repo_installation(owner, repo_name)
+        access_token = integration.get_access_token(installation.id).token
         
         gh = Github(access_token)
         repo = gh.get_repo(repo_full_name)
-        issue = repo.get_issue(int(issue_number))
-        issue = gh.get_repo(repo_full_name).get_issue(int(issue_number))
-        issue.create_comment(message)
+        issue = repo.get_issue(int(task_id))
+        
+        # Add execution telemetry structure
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
+        
+        structured_payload = f"### 🤖 Lios-Agent Execution Report\n*Checkpoint: {timestamp}*\n\n---\n\n{message}"
+        
+        issue.create_comment(structured_payload)
         return "Comment posted successfully."
     except Exception as e:
         return f"Error posting GitHub comment: {str(e)}"
@@ -839,3 +860,156 @@ def fetch_external_link(url: str) -> str:
         return text
     except Exception as e:
         return f"Failed to fetch external link {url}: {str(e)}"
+
+# ---------------------------------------------------------------------------
+# Ralph Integration: Cross-Task Learning (Phase 1)
+# ---------------------------------------------------------------------------
+
+def read_progress_log(workspace_path: str) -> str:
+    """Read the Ralph-style progress log from the target repo."""
+    import os
+    progress_path = os.path.join(workspace_path, ".lios-agent", "progress.txt")
+    if os.path.exists(progress_path):
+        with open(progress_path, "r") as f:
+            return f.read()
+    return ""
+
+def write_progress_log(workspace_path: str, task_id: str, instructions: str, 
+                        blueprint: dict, history: list):
+    """
+    Append learnings to .lios-agent/progress.txt after a successful run.
+    Also updates AGENTS.md with discovered patterns via LLM.
+    """
+    import datetime
+    import os
+    
+    progress_dir = os.path.join(workspace_path, ".lios-agent")
+    os.makedirs(progress_dir, exist_ok=True)
+    progress_path = os.path.join(progress_dir, "progress.txt")
+    
+    # --- 1. Append progress entry ---
+    entry = f"""
+## {datetime.datetime.now().isoformat()} - Task #{task_id}
+- **Issue:** {instructions[:200]}
+- **Feature:** {blueprint.get('feature_name', 'Unknown')}
+- **Files Modified:** {', '.join(f.get('filepath', '') for f in blueprint.get('files_to_modify', []))}
+- **Files Created:** {', '.join(f.get('filepath', '') for f in blueprint.get('files_to_create', []))}
+- **Pipeline Result:** {history[-1] if history else 'Unknown'}
+---
+"""
+    with open(progress_path, "a") as f:
+        f.write(entry)
+    
+    # --- 2. LLM-powered AGENTS.md self-improvement ---
+    try:
+        from agent.llm_factory import get_llm
+        from langchain_core.messages import HumanMessage
+        
+        agents_md_path = os.path.join(workspace_path, "AGENTS.md")
+        existing_agents = ""
+        if os.path.exists(agents_md_path):
+            with open(agents_md_path, "r") as f:
+                existing_agents = f.read()
+        
+        # Read the full progress log for context
+        full_progress = ""
+        if os.path.exists(progress_path):
+            with open(progress_path, "r") as f:
+                full_progress = f.read()[-5000:]  # Last 5k chars
+        
+        llm = get_llm(role="planning")
+        prompt = f"""You are a senior iOS architect reviewing the results of an automated coding run.
+
+The run just completed for Task #{task_id}: {instructions[:300]}
+
+Pipeline history:
+{chr(10).join(history[-10:])}
+
+Existing AGENTS.md:
+{existing_agents[:3000]}
+
+Recent progress log:
+{full_progress[-2000:]}
+
+If you discovered any REUSABLE patterns, gotchas, or conventions that future runs on this codebase should know, output ONLY the new lines to APPEND to the AGENTS.md "## Codebase Patterns" section. 
+
+Rules:
+- Only add genuinely reusable knowledge (e.g., "When modifying X, also update Y")
+- Do NOT repeat anything already in AGENTS.md
+- Do NOT add task-specific details
+- If there is nothing new to add, respond with exactly: NO_UPDATE
+
+Output the raw markdown lines only. No explanation."""
+        
+        response = llm.invoke([HumanMessage(content=prompt)]).content.strip()
+        
+        if response and response != "NO_UPDATE" and len(response) > 10:
+            with open(agents_md_path, "a") as f:
+                if "## Codebase Patterns" not in existing_agents:
+                    f.write("\n\n## Codebase Patterns\n")
+                f.write(f"\n{response}\n")
+            print(f"📝 Self-improved AGENTS.md with {len(response)} chars of new patterns.")
+        else:
+            print("📝 No new AGENTS.md patterns discovered this run.")
+    except Exception as e:
+        print(f"⚠️ AGENTS.md self-improvement failed (non-fatal): {e}")
+
+# ---------------------------------------------------------------------------
+# Ralph Integration: Multi-Story Loop (Phase 3)
+# ---------------------------------------------------------------------------
+
+def commit_story(workspace_path: str, story: dict) -> str:
+    """
+    Stage and commit changes for a single completed user story.
+    Does NOT push — the push happens once at the end after all stories.
+    Uses conventional commit format: feat: US-XXX - Title
+    """
+    import subprocess
+    try:
+        subprocess.run(["git", "add", "-A"], cwd=workspace_path, 
+                       check=True, capture_output=True)
+        
+        # Check if there are actual changes
+        staged = subprocess.run(["git", "diff", "--cached", "--name-only"], 
+                               cwd=workspace_path, capture_output=True, text=True)
+        staged_files = [f for f in staged.stdout.strip().split("\n") if f]
+        
+        if not staged_files:
+            return f"SKIPPED: No changes for story {story['id']}"
+        
+        story_id = story.get("id", "US-???")
+        story_title = story.get("title", "Unknown")
+        commit_msg = f"feat: {story_id} - {story_title}\n\n[Lios-Agent Ralph Loop]"
+        
+        subprocess.run(["git", "commit", "-m", commit_msg], 
+                       cwd=workspace_path, check=True, capture_output=True)
+        
+        return f"COMMITTED: {story_id} - {story_title} ({len(staged_files)} files)"
+    except subprocess.CalledProcessError as e:
+        return f"ERROR: Commit failed for {story.get('id')}: {e.stderr}"
+
+def append_story_progress(workspace_path: str, story: dict, success: bool, 
+                          build_output: str = ""):
+    """Append a per-story entry to .lios-agent/progress.txt"""
+    import datetime
+    import os
+    
+    progress_dir = os.path.join(workspace_path, ".lios-agent")
+    os.makedirs(progress_dir, exist_ok=True)
+    progress_path = os.path.join(progress_dir, "progress.txt")
+    
+    status = "✅ PASSED" if success else "❌ FAILED"
+    entry = f"""
+## {datetime.datetime.now().isoformat()} - {story.get('id', '???')}
+- **Title:** {story.get('title', 'Unknown')}
+- **Status:** {status}
+- **Acceptance Criteria:** {', '.join(story.get('acceptance_criteria', []))}
+"""
+    if not success and build_output:
+        # Capture last 500 chars of build errors as learnings
+        entry += f"- **Build Error (last 500 chars):** {build_output[-500:]}\n"
+    
+    entry += "---\n"
+    
+    with open(progress_path, "a") as f:
+        f.write(entry)

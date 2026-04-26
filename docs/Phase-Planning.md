@@ -6,25 +6,33 @@ This document details the complete flow of the Planning phase in the Lios-Agent 
 
 ## Overview
 
-```
-GitHub Issue Opened
+```text
+CLI Command: lios epic <name>  (or `lios story`)
        │
        ▼
-┌──────────────┐    vague    ┌──────────────────────────┐
-│   Vetting    │ ──────────► │ Post Clarification & END │
-└──────┬───────┘             └──────────────────────────┘
-       │ actionable
+┌──────────────────────────┐
+│  Interactive CLI Intake  │  (Prompts user, parses @file mentions)
+└──────┬───────────────────┘
+       │
        ▼
 ┌──────────────────┐
-│  Workspace Init  │  (APFS Clone → sandbox)
+│ Vault Init & Save│  (Creates .workspaces/<name>/state.yml)
+└──────┬───────────┘
+       │
+       ▼
+CLI Command: lios execute <vault_path>
+       │
+       ▼
+┌──────────────────┐
+│  Workspace Init  │  (APFS Clone target repo → sandbox)
 └──────┬───────────┘
        ▼
 ┌──────────────────────────┐
-│   Context Aggregator     │  (async MCP micro-agent)
+│   Context Aggregator     │  (Hybrid deterministic + async MCP micro-agent)
 │   ┌────────────────────┐ │
-│   │ Serena MCP         │ │  → codebase symbols, protocols, patterns
-│   │ XcodeBuildMCP      │ │  → build settings, schemes, targets
-│   │ (Figma/Jira: TBD)  │ │
+│   │ Serena MCP         │ │  → Codebase symbols overview & onboarding
+│   │ ReAct Micro-Agent  │ │  → Triggered only if external links (Figma/Jira) are detected
+│   │ Raw Shell Fallback │ │  → Project tree extraction if MCP fails
 │   └────────────────────┘ │
 └──────┬───────────────────┘
        ▼
@@ -33,35 +41,32 @@ GitHub Issue Opened
 └──────┬───────────┘
        ▼
 ┌──────────────────────────────┐
-│  Blueprint Presentation      │  → Posts Markdown to GitHub Issue
+│  Blueprint Presentation      │  → Posts Markdown to CLI / GitHub
 │  (HITL Gate — waits for      │  → Pipeline HALTS
-│   "Approve" comment)         │
+│   "Approve" or feedback)     │  → Loops back to Planner if feedback is given
 └──────────────────────────────┘
 ```
 
 ---
 
-## Step 1: Issue Vetting
+## Step 1: Interactive CLI Intake & Vault Initialization
 
-**Source:** `agent/graph.py` → `issue_vetting_node()`
+**Source:** `cli.py` → `epic()` / `story()`
 
 ### Purpose
-Prevent the agent from wasting compute on vague, spam, or incomplete issues.
+Gather the initial requirements directly from the engineer via the CLI, resolve local file context, and establish a local state "Vault" before starting the heavy execution engine.
 
 ### Flow
-1. The raw `issue.title` + `issue.body` text is passed to the Planning LLM.
-2. The LLM is prompted:
-   > "If the issue is clear enough to attempt finding/fixing code (it mentions a component, feature, or clear request), simply reply 'ACTIONABLE'. If the issue is vague, dummy testing text, or lacks context, write a short polite comment asking the developer for clarification."
-3. Two outcomes:
-   - **`"ACTIONABLE"`** → The graph proceeds to Workspace Init.
-   - **Anything else** → The LLM's response is posted as a GitHub comment on the issue via `post_github_comment()`, and the pipeline terminates.
+1. The developer runs `lios epic <name>` or `lios story <epic_name> <story_id>`.
+2. An interactive terminal session starts (`UniversalREPL.interactive_intake_session()`).
+3. The developer describes the feature. They can use the `@filepath` syntax (e.g., `Add a button to @src/App.tsx`).
+4. The REPL parses these tags, reads the local files, and concatenates their contents into the prompt.
+5. The `VaultManager` creates an isolated directory in `.workspaces/<name>/` and writes the initial context to a human-readable YAML state file.
+6. The user explicitly starts the graph pipeline by running `lios execute <vault_path>`.
 
 ### What is gathered
-Nothing. This is purely a quality gate.
-
-### Example rejection
-Issue: *"fix the app"*
-Agent comment: *"Hi! Could you provide more details about what specifically needs to be fixed? For example: which screen, feature, or error are you experiencing?"*
+- Task ID / Epic Name
+- Developer Instructions (with inlined local file contexts)
 
 ---
 
@@ -123,26 +128,24 @@ MCP servers communicate over persistent stdio pipes. Python's `AsyncExitStack` i
    - All tools from all servers are merged into a single flat list.
    - Example tools surfaced: `search_symbol`, `get_file_content`, `list_build_settings`, `get_available_schemes`, etc.
 
-#### 3b. Autonomous Micro-Agent Loop
-4. **ReAct Agent Spawn:**
-   - A `create_react_agent(llm, tools=all_tools)` is created — this is a fully autonomous reasoning loop running *inside* this single graph node.
-   - The agent receives this prompt:
-     > "Use your tools to find deep context related to this issue: {instructions}. Search codebase symbols or legacy patterns. Return a thorough technical summary."
+#### 3b. Deterministic Onboarding & Conditional Micro-Agent Loop
+4. **Deterministic Serena Onboarding:**
+   - Instead of immediately spawning a slow LLM loop, the node natively executes specific Serena tools:
+     - `check_onboarding_performed` & `onboarding` → Sets up the codebase context.
+     - `initial_instructions` → Loads the project context.
+     - `get_symbols_overview` → Captures a high-level architectural snapshot.
 
-5. **Multi-step Tool Calling:**
-   - The micro-agent autonomously decides which tools to call and in what order. A typical session might look like:
-     1. `search_symbol("OrderTrackingView")` → finds existing view file
-     2. `get_file_content("Sources/Features/Order/OrderTrackingView.swift")` → reads the implementation
-     3. `search_symbol("OrderRepository")` → discovers the data layer
-     4. `list_build_settings()` → confirms the deployment target is iOS 16+
-   - The agent loops until it has enough context, then produces a summary.
+5. **Conditional ReAct Agent Spawn:**
+   - A `create_react_agent(llm, tools=all_tools)` is **ONLY** created if the GitHub issue text contains external links (e.g., `figma.com`, `jira`, `http://`). 
+   - If triggered, this autonomous reasoning loop runs to fetch and synthesize external requirements into the blueprint context.
 
-6. **Output:** The final response is stored as a plain string in `state["mcp_context"]`.
+6. **Output:** The final synthesized string from the deterministic onboarding and (optional) LLM research is stored in `state["mcp_context"]`.
 
 #### 3c. Failure Handling
 - If no MCP servers connect (e.g., Node not installed, Serena not available):
   - Returns `"No external MCP context available."` 
-  - The pipeline **proceeds anyway** — the Planner works with just the issue text.
+  - **Raw Shell Fallback:** The system will attempt to run `find .` to extract the raw directory tree so the Planner isn't completely blind.
+  - The pipeline **proceeds anyway** — the Planner works with the degraded context.
 - If the micro-agent errors mid-execution:
   - Returns `"Failed to execute context gathering: {error}"`
   - The pipeline proceeds with degraded context.
@@ -188,7 +191,7 @@ Transform the gathered intelligence + issue requirements into a **deterministic,
        feature_name: str                       # "OrderTrackingScreen"
        files_to_create: List[FileModification]  # New files to scaffold
        files_to_modify: List[FileModification]  # Existing files to surgically patch  
-       files_to_test: List[FileModification]    # XCTest suites (REQUIRED — enforces TDD)
+       files_to_test: List[FileModification]    # XCTest suites (Optional for config/docs tasks)
        architecture_components: List[str]       # ["SwiftUI", "MVVM", "Construkt.bgPrimary"]
    ```
    Each `FileModification` contains:
@@ -197,9 +200,10 @@ Transform the gathered intelligence + issue requirements into a **deterministic,
        filepath: str   # "Sources/Features/Order/OrderTrackingView.swift"
        purpose: str    # "New SwiftUI view implementing the tracking timeline UI"
    ```
+   *(Note: Later in the `prd_decomposer_node`, this blueprint is fragmented into individual `UserStory` models which map these operations into a strict `target_files: List[str]` array. This powers the parallel execution file-lock manager.)*
 
-4. **TDD Enforcement:**
-   `files_to_test` has a Pydantic Field description that says *"Must contain at least 1 test file."* The LLM is structurally compelled to populate this array.
+4. **TDD Enforcement (Conditional):**
+   `files_to_test` has a Pydantic Field description that explicitly says *"Array of Swift Testing test suites. Mandatory for Swift features, but LEAVE EMPTY for pure documentation/config tasks."* The LLM is structurally guided to populate this array for application code, but allowed to omit it for configuration tasks.
 
 5. **Blueprint stored in state:**
    ```python
@@ -247,13 +251,16 @@ Post the plan for human review before any code is written. This is the safety ne
    The LangGraph is compiled with `interrupt_before=["blueprint_approval_gate"]`. The graph state is checkpointed to `AsyncSqliteSaver`, and the webhook thread returns.
 
 ### How it resumes
-- A developer reads the blueprint on GitHub and comments **"Approve"**.
+- A developer reads the blueprint on GitHub and comments **"Approve"** (or provides feedback).
 - GitHub sends an `issue_comment` webhook to `POST /webhooks/github`.
-- The handler in `main.py` detects `"approve" in body.lower()` and hits the `blueprint_approval_gate` breakpoint, calling:
+- The handler in `main.py` detects the comment and hits the `blueprint_approval_gate` breakpoint, calling:
   ```python
   await graph_app.ainvoke(None, config={"configurable": {"thread_id": f"issue-{issue_num}"}})
   ```
-- LangGraph rehydrates the state from the checkpoint and continues directly into the OpenCode Architect phase.
+- LangGraph rehydrates the state from the checkpoint.
+- **Conditional Routing:** 
+  - If the comment implies approval, it continues directly into the `prd_decomposer` phase.
+  - If the comment contains feedback, the state history is updated with `"Blueprint feedback received: {feedback}"` and the graph loops back to the `planner` node to regenerate the blueprint based on the human feedback.
 
 ---
 

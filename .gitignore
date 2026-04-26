@@ -6,7 +6,6 @@ __pycache__/
 .workspaces/
 *.pem
 state.db*
-test_*.py
 scratch*.py
 simulate*.py
 read_*.py
@@ -15,3 +14,4 @@ state_out.txt
 error
 mock_*.json
 force_retry.py
+.worktrees/

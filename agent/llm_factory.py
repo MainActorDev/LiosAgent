@@ -34,8 +34,8 @@ def get_llm(role: str = "default") -> BaseChatModel:
             base_url=base_url,
             max_tokens=4096,
             temperature=0.0,
-            timeout=60.0,
-            max_retries=1
+            timeout=180.0,
+            max_retries=2
         )
         
     elif provider == "openai":

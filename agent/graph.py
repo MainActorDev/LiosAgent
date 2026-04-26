@@ -3,8 +3,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import StateGraph, END
 
-# GLOBALLY persist LangGraph thread memory across the FastAPI lifecycle
-GLOBAL_CHECKPOINTER = MemorySaver()
+# Checkpointers are now injected dynamically per-vault
 
 from agent.state import AgentState
 from agent.tools import clone_isolated_workspace, post_github_comment, capture_simulator_screenshot, validate_ui_with_vision, fetch_external_link, navigate_to_target_view
@@ -175,9 +174,19 @@ Return a structured markdown report of your findings."""
         agent_skills = "No specific rules found. Follow standard iOS best practices."
     context_data = "\n\n".join(context_parts) if context_parts else "No context gathered."
     
+    # --- Ralph Integration: Read cross-task progress log ---
+    progress_log = ""
+    if workspace_path:
+        from agent.tools import read_progress_log
+        progress_log = read_progress_log(workspace_path)
+        if progress_log:
+            context_parts.append(f"## Prior Run Learnings (progress.txt)\n{progress_log[-3000:]}")
+            print(f"📖 Loaded {len(progress_log)} chars of cross-task learnings from progress.txt")
+    
     return {
         "mcp_context": context_data,
         "agent_skills": agent_skills,
+        "progress_log": progress_log,
         "history": ["Context Aggregator Node executed. Serena onboarding + external tools queried."]
     }
 
@@ -242,6 +251,11 @@ If this is a coding task, you MUST mandate TDD by defining the Swift Testing (`i
             architecture_components=[]
         )
     
+    from agent.vault_manager import VaultManager
+    epic_name = state.get("task_id", "default_epic")
+    vault_path = VaultManager.create_epic_vault(epic_name)
+    VaultManager.save_blueprint(vault_path, blueprint.dict())
+    
     return {
         "blueprint": blueprint.dict(),
         "history": [f"Planning Step Complete: Generated FeatureBlueprint for {blueprint.feature_name}"]
@@ -271,9 +285,9 @@ def blueprint_presentation_node(state: AgentState):
     md += f"\n**Architecture Components:** `{', '.join(blueprint_dict.get('architecture_components', []))}`\n\n"
     md += "---\n*Please reply with **Approve** to execute this graph.*"
     
-    if repo_full_name and installation_id:
-        print(f"✅ Generating Blueprint markdown and posting to GitHub for {repo_full_name}#{task_id}...")
-        result = post_github_comment(repo_full_name, task_id, installation_id, md)
+    if task_id:
+        print(f"✅ Generating Blueprint markdown and posting to GitHub for Task #{task_id}...")
+        result = post_github_comment(task_id, md)
         print(f"GitHub Post Result: {result}")
         
     return {"history": ["Blueprint posted to GitHub. Suspended thread awaiting approval."]}
@@ -332,6 +346,27 @@ Before generating code, use your native file-reading tools to investigate any sk
 Solve the task completely, adhering to the design patterns and rules defined above.
 Ensure you fulfill every aspect of the blueprint."""
     
+    # --- Ralph Integration: Focus on current story if PRD exists ---
+    prd_stories = state.get("prd_stories", [])
+    active_ids = state.get("active_story_ids", [])
+    story_id = active_ids[0] if active_ids else None
+    
+    if prd_stories and story_id:
+        current_story = next((s for s in prd_stories if s["id"] == story_id), None)
+        if current_story:
+            prompt += f"""\n\n📋 CURRENT STORY (focus on THIS only):
+Story ID: {current_story['id']}
+Title: {current_story['title']}
+Description: {current_story['description']}
+Target Files: {current_story.get('target_files', [])}
+Acceptance Criteria:
+{chr(10).join(f'  - {c}' for c in current_story.get('acceptance_criteria', []))}
+Notes: {current_story.get('notes', 'None')}
+
+IMPORTANT: Implement ONLY this story. Do not work on other stories.
+Only modify the files listed in Target Files to avoid parallel execution merge conflicts.
+After completing, ensure all acceptance criteria are met."""
+    
     instructions_lower = state.get('instructions', '').lower()
     has_figma_link = "figma.com" in instructions_lower or "figma" in instructions_lower
     
@@ -362,15 +397,7 @@ Ensure you fulfill every aspect of the blueprint."""
     }
     
     opencode_config["mcp"] = {}
-    
-    # Dynamically inject XcodeBuildMCP so the LLM can construct native compilation schemas
-    opencode_config["mcp"]["XcodeBuildMCP"] = {
-        "type": "local",
-        "command": ["npx", "-y", "xcodebuildmcp"],
-        "enabled": True
-    }
-    print("🛠️ Architect Coder natively mounting XcodeBuildMCP into OpenCode sandbox...")
-    
+
     if has_figma_link and os.environ.get("FIGMA_ACCESS_TOKEN"):
         opencode_config["mcp"]["FigmaMCP"] = {
             "type": "local",
@@ -382,6 +409,7 @@ Ensure you fulfill every aspect of the blueprint."""
         }
         print("🎨 Architect Coder natively mounting FigmaMCP into OpenCode sandbox...")
         
+    os.makedirs(workspace_path, exist_ok=True)
     config_path = os.path.join(workspace_path, "opencode.json")
     with open(config_path, "w") as f:
         json.dump(opencode_config, f, indent=2)
@@ -396,24 +424,29 @@ Ensure you fulfill every aspect of the blueprint."""
         
     # 3. Stream real-time output and harvest Session ID
     print(f"👨‍💻 Architect Coder is farming execution to OpenCode in {workspace_path} (Auto-Approve Enabled)...")
-    process = subprocess.Popen(
-        cmd,
-        cwd=workspace_path,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,  # Merge stderr into stdout
-        text=True,
-        bufsize=1
-    )
-    
-    captured_output = []
-    
-    for line in iter(process.stdout.readline, ''):
-        # Print natively bypassing python typical buffering
-        sys.stdout.write(line)
-        sys.stdout.flush()
-        captured_output.append(line)
+    try:
+        process = subprocess.Popen(
+            cmd,
+            cwd=workspace_path,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # Merge stderr into stdout
+            text=True,
+            bufsize=1
+        )
         
-    process.wait()
+        captured_output = []
+        
+        for line in iter(process.stdout.readline, ''):
+            # Print natively bypassing python typical buffering
+            sys.stdout.write(line)
+            sys.stdout.flush()
+            captured_output.append(line)
+            
+        process.wait(timeout=1800) # 30 minute timeout for OpenCode runs
+    except subprocess.TimeoutExpired:
+        process.kill()
+        captured_output.append("\n\n[Lios-Agent] TIMEOUT: OpenCode execution exceeded 30 minutes and was killed.")
+        print("\n\n[Lios-Agent] TIMEOUT: OpenCode execution exceeded 30 minutes and was killed.")
     
     # 4. Extract Session ID if available in TUI raw output
     full_output = "".join(captured_output)
@@ -427,53 +460,6 @@ Ensure you fulfill every aspect of the blueprint."""
         
     return {"history": [history_msg], "opencode_session_id": extracted_session}
 
-def post_approval_to_slack(task_id: str, success: bool, feedback: str = ""):
-    slack_channel = os.environ.get("SLACK_CHANNEL_ID")
-    bot_token = os.environ.get("SLACK_BOT_TOKEN")
-    if slack_channel and bot_token:
-        from slack_sdk import WebClient
-        client = WebClient(token=bot_token)
-        try:
-            status_emoji = "✅" if success else "❌"
-            
-            is_fatal = "FATAL" in feedback.upper() or "BUILD FAILED" in feedback.upper() or "ERROR:" in feedback.upper()
-            
-            if success:
-                status_text = "All compilation and UI validations have passed! Would you like me to push this code?"
-            elif is_fatal:
-                status_text = f"Critical Simulator Failure:\n_{feedback}_\n\nThe workspace was rolled back to prevent pushing broken code."
-            else:
-                status_text = f"UI Validation FAILED:\n_{feedback}_\n\nWould you like to manually approve and push this code anyway?"
-            
-            blocks = [
-                {
-                    "type": "section",
-                    "text": {"type": "mrkdwn", "text": f"{status_emoji} *AI Validation for Task #{task_id}*\n {status_text}"}
-                }
-            ]
-            
-            # Only offer the manual override button for subjective visual mismatches, NOT hard compile crashes
-            if success or not is_fatal:
-                blocks.append({
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "Approve & Push"},
-                            "style": "primary",
-                            "action_id": "approve_pr",
-                            "value": str(task_id)
-                        }
-                    ]
-                })
-                
-            client.chat_postMessage(
-                channel=slack_channel,
-                text=f"Validation Result for Task {task_id}",
-                blocks=blocks
-            )
-        except Exception as e:
-            print(f"Failed to post Slack approval: {e}")
 
 def validator_node(state: AgentState):
     workspace_path = state.get("workspace_path")
@@ -500,10 +486,14 @@ def validator_node(state: AgentState):
         errors = state.get("compiler_errors", [])
         errors.append(build_output)
         retries = state.get("retries_count", 0) + 1
+        compile_retries = state.get("compile_retry_count", 0) + 1
+        story_retries = state.get("story_retries_count", 0) + 1
         return {
             "compiler_errors": errors,  
             "retries_count": retries,
-            "history": [f"Xcode Build Failed. Retry count: {retries}"]
+            "compile_retry_count": compile_retries,
+            "story_retries_count": story_retries,
+            "history": [f"Xcode Build Failed. Retry count: {retries} (Story retries: {story_retries}, Compile retries: {compile_retries})"]
         }
 
 def maestro_navigation_generator_node(state: AgentState):
@@ -603,11 +593,12 @@ def maestro_navigation_generator_node(state: AgentState):
 def should_retry(state: AgentState) -> str:
     """Conditional Edge logic: decides if we go back to CoderNode or give up."""
     # Break out to UI validation phase if build succeeded
-    if "PASSED" in state.get("history", [])[-1]:
+    history = state.get("history", [])
+    if history and "PASSED" in history[-1]:
         return "ui_check"
         
     # Safeguard against infinite loops and clean corrupted states
-    if state.get("retries_count", 0) >= 3:
+    if state.get("compile_retry_count", 0) >= 3:
         workspace_path = state.get("workspace_path")
         if workspace_path:
             import subprocess
@@ -635,7 +626,6 @@ def ui_vision_validator_node(state: AgentState):
     
     if not has_ui:
         print("⏭️ UI Vision Check Skipped: No Swift source files were modified in this blueprint.")
-        post_approval_to_slack(state.get("task_id", "Unknown"), success=True)
         return {"history": ["UI Vision Check: Skipped (no Swift files touched)."]}
     
     task_id = state.get("task_id", "default_task")
@@ -644,9 +634,6 @@ def ui_vision_validator_node(state: AgentState):
     
     if "error" in screenshot_result:
         print(f"⚠️ Screenshot capture failed. Aborting Vision Check: {screenshot_result['error']}")
-        
-        post_approval_to_slack(state.get("task_id", "Unknown"), success=False, feedback=screenshot_result['error'])
-        
         return {
             "screenshot_path": "",
             "device_udid": "",
@@ -675,7 +662,6 @@ def vision_validation_node(state: AgentState):
     screenshot_path = state.get("screenshot_path", "")
     
     if not screenshot_path:
-        post_approval_to_slack(state.get("task_id", "Unknown"), success=True)
         return {"history": ["Vision Validation: Skipped (no screenshot available)."]}
     
     full_path = os.path.join(workspace_path, screenshot_path) if not os.path.isabs(screenshot_path) else screenshot_path
@@ -690,11 +676,9 @@ def vision_validation_node(state: AgentState):
     
     if vision_result["passed"]:
         print(f"✅ UI Vision PASSED: {vision_result['feedback']}")
-        post_approval_to_slack(state.get("task_id", "Unknown"), success=True)
         return {"history": [f"UI Vision Check: PASSED. {vision_result['feedback']}"]}
     else:
         print(f"❌ UI Vision FAILED: {vision_result['feedback']}")
-        post_approval_to_slack(state.get("task_id", "Unknown"), success=False, feedback=vision_result['feedback'])
         return {"history": [f"UI Vision Check: FAILED. {vision_result['feedback']}"]}
 
 def should_proceed_from_ui_check(state: AgentState) -> str:
@@ -716,33 +700,11 @@ Only reply with a polite comment asking for clarification if the issue is litera
     response = llm.invoke(prompt).content.strip()
     
     if response.upper() == "ACTIONABLE":
-        import os
-        from slack_sdk import WebClient
-        
-        slack_token = os.environ.get("SLACK_BOT_TOKEN")
-        slack_channel = os.environ.get("SLACK_CHANNEL_ID")
         task_id = state.get("task_id", "Unknown")
         repo_full_name = state.get("repo_full_name", "Repository")
         
-        if slack_token and slack_channel:
-            try:
-                client = WebClient(token=slack_token)
-                client.chat_postMessage(
-                    channel=slack_channel,
-                    text="Vetting Passed",
-                    blocks=[
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn", 
-                                "text": f"✅ *Vetting Passed for #{task_id}*\nThe issue is actionable! The Principal Architect is now analyzing `{repo_full_name}` to generate the architectural blueprint. This typically takes 2-3 minutes..."
-                            }
-                        }
-                    ]
-                )
-            except Exception as e:
-                print(f"Failed to post Slack notification: {e}")
-                
+        print(f"✅ Vetting Passed for #{task_id}. The Principal Architect is now analyzing `{repo_full_name}` to generate the architectural blueprint...")
+        
         return {"history": ["Issue Vetting: Actionable."]}
     else:
         # Halt and comment on GitHub
@@ -751,8 +713,8 @@ Only reply with a polite comment asking for clarification if the issue is litera
         installation_id = state.get("installation_id")
         
         from agent.tools import post_github_comment
-        if repo_full_name and installation_id:
-            post_github_comment(repo_full_name, task_id, installation_id, response)
+        if task_id:
+            post_github_comment(task_id, response)
             
         return {"history": ["Issue Vetting: Failed. Commented on GitHub and halted."]}
 
@@ -774,11 +736,246 @@ def should_proceed_from_blueprint(state: AgentState) -> str:
     last_history = state.get("history", [""])[-1]
     
     if "approved by human" in last_history:
-        return "architect_coder"
+        return "prd_decomposer"
     elif "Blueprint feedback received" in last_history:
         return "planner"
         
-    return "architect_coder"
+    return "prd_decomposer"
+
+def prd_decomposer_node(state: AgentState):
+    """
+    Ralph Integration: Decomposes the approved FeatureBlueprint into
+    atomic user stories for sequential execution.
+    """
+    from agent.ralph import decompose_blueprint_to_stories, format_stories_for_github
+    
+    blueprint = state.get("blueprint", {})
+    instructions = state.get("instructions", "")
+    mcp_context = state.get("mcp_context", "")
+    progress_log = state.get("progress_log", "")
+    
+    print("📋 Decomposing blueprint into atomic user stories (Ralph PRD)...")
+    stories = decompose_blueprint_to_stories(
+        blueprint, instructions, mcp_context, progress_log
+    )
+    
+    print(f"📋 Generated {len(stories)} user stories:")
+    from agent.vault_manager import VaultManager
+    epic_name = state.get("task_id", "default_epic")
+    
+    for s in stories:
+        print(f"  → {s['id']}: {s['title']} (priority: {s['priority']})")
+        # Physically generate the Story Vault
+        story_path = VaultManager.create_story_vault(epic_name, s["id"])
+        with open(os.path.join(story_path, "story_plan.md"), "w") as f:
+            f.write(f"# {s['id']}: {s['title']}\n\n{s['description']}\n\n## Acceptance Criteria\n")
+            for c in s.get("acceptance_criteria", []):
+                f.write(f"- [ ] {c}\n")
+            if s.get("notes"):
+                f.write(f"\n## Notes\n{s['notes']}")
+
+    
+    # Post the decomposition to GitHub for visibility
+    repo_full_name = state.get("repo_full_name")
+    task_id = state.get("task_id")
+    installation_id = state.get("installation_id")
+    
+    if task_id:
+        from agent.tools import post_github_comment
+        feature_name = blueprint.get("feature_name", "Feature")
+        md = format_stories_for_github(stories, feature_name)
+        post_github_comment(task_id, md)
+    
+    return {
+        "prd_stories": stories,
+        "current_story_index": 0,
+        "history": [f"PRD Decomposition complete: {len(stories)} stories generated."]
+    }
+
+from langgraph.types import Send
+def story_selector_node(state: AgentState):
+    """Pick the next pending stories from the PRD that don't have file conflicts, or signal completion."""
+    stories = state.get("prd_stories", [])
+    active_ids = state.get("active_story_ids", [])
+    completed = state.get("completed_story_ids", [])
+    skipped = state.get("skipped_story_ids", [])
+    
+    # Calculate locked files from currently active stories
+    locked_files = set()
+    for s in stories:
+        if s["id"] in active_ids:
+            locked_files.update(s.get("target_files", []))
+            
+    # Find pending stories that don't intersect with locked files
+    sends = []
+    new_active_ids = list(active_ids)
+    picked_stories = []
+    
+    for story in stories:
+        # A story is pending if it's not active, completed, or skipped
+        is_pending = (
+            story["id"] not in active_ids and
+            story["id"] not in completed and
+            story["id"] not in skipped
+        )
+        
+        if is_pending:
+            story_files = set(story.get("target_files", []))
+            # No conflict! We can run this in parallel
+            if not story_files.intersection(locked_files):
+                sends.append(Send("architect_coder", {"active_story_ids": [story["id"]]}))
+                new_active_ids.append(story["id"])
+                locked_files.update(story_files)
+                picked_stories.append(f"{story['id']} - {story['title']}")
+                
+                # Enforce concurrency limit (e.g. max 3)
+                if len(new_active_ids) >= 3:
+                    break
+    
+    if sends:
+        print(f"📖 Next parallel stories: {', '.join(picked_stories)}")
+        return {
+            "active_story_ids": new_active_ids,
+            "story_retries_count": 0,   # Reset per-story retry counter
+            "compile_retry_count": 0,   # Reset compile retry counter
+            "compiler_errors": [],       # Clear errors from previous story
+            "history": [f"Story selector: dispatched {len(sends)} stories in parallel"]
+        }, sends
+    elif active_ids:
+         # Waiting for active stories to complete before picking more
+         print(f"⏳ Waiting for {len(active_ids)} active stories to complete...")
+         return {"history": [f"Story selector: waiting on {len(active_ids)} active stories."]}
+    else:
+        print(f"🎉 All stories processed! Completed: {len(completed)}, Skipped: {len(skipped)}")
+        return {
+            "active_story_ids": [],
+            "history": [f"All stories processed. {len(completed)} completed, {len(skipped)} skipped."]
+        }
+
+def story_commit_node(state: AgentState):
+    """Commit the current story's changes after a successful build."""
+    from agent.tools import commit_story
+    from agent.ralph import mark_story_passed
+    
+    workspace_path = state.get("workspace_path")
+    stories = state.get("prd_stories", [])
+    active_ids = state.get("active_story_ids", [])
+    story_id = active_ids[0] if active_ids else ""
+    
+    # Find the current story
+    current_story = next((s for s in stories if s["id"] == story_id), None)
+    if not current_story:
+        return {"history": [f"Story commit: story {story_id} not found in PRD."]}
+    
+    result = commit_story(workspace_path, current_story)
+    print(f"  📦 {result}")
+    
+    # Mark story as passed
+    updated_stories = mark_story_passed(stories, story_id)
+    completed = state.get("completed_story_ids", [])
+    if story_id not in completed:
+        completed.append(story_id)
+        
+    if story_id in active_ids:
+        active_ids.remove(story_id)
+    
+    return {
+        "prd_stories": updated_stories,
+        "active_story_ids": active_ids,
+        "completed_story_ids": completed,
+        "history": [f"Story {story_id} committed: {result}"]
+    }
+
+def story_progress_node(state: AgentState):
+    """Append progress.txt entry for the completed story."""
+    from agent.tools import append_story_progress
+    
+    workspace_path = state.get("workspace_path")
+    stories = state.get("prd_stories", [])
+    
+    # In Send API architecture, the active_story_ids isn't directly usable here
+    # to find the specific completed story because it was removed in story_commit.
+    # So we find the most recently completed story.
+    completed = state.get("completed_story_ids", [])
+    story_id = completed[-1] if completed else ""
+    
+    current_story = next((s for s in stories if s["id"] == story_id), None)
+    if current_story:
+        append_story_progress(workspace_path, current_story, success=True)
+    
+    return {"history": [f"Progress logged for story {story_id}."]}
+
+def story_skip_node(state: AgentState):
+    """Skip a story that failed too many times, log it, and move on."""
+    from agent.tools import append_story_progress
+    
+    workspace_path = state.get("workspace_path")
+    stories = state.get("prd_stories", [])
+    active_ids = state.get("active_story_ids", [])
+    # For now, we assume the first active story is the one that failed.
+    # In a fully parallel Send setup, state updates need to be carefully scoped.
+    story_id = active_ids[0] if active_ids else ""
+    
+    current_story = next((s for s in stories if s["id"] == story_id), None)
+    
+    # Log the failure
+    if current_story:
+        build_errors = state.get("compiler_errors", [])
+        last_error = build_errors[-1] if build_errors else ""
+        append_story_progress(workspace_path, current_story, success=False, 
+                             build_output=last_error)
+        current_story["notes"] = f"SKIPPED after 3 retries. Last error: {last_error[-200:]}"
+    
+    skipped = state.get("skipped_story_ids", [])
+    if story_id not in skipped:
+        skipped.append(story_id)
+        
+    if story_id in active_ids:
+        active_ids.remove(story_id)
+    
+    # Git rollback: discard uncommitted changes from the failed story
+    import subprocess
+    subprocess.run(["git", "checkout", "--", "."], cwd=workspace_path, 
+                   check=False, capture_output=True)
+    subprocess.run(["git", "clean", "-fd"], cwd=workspace_path, 
+                   check=False, capture_output=True)
+    
+    print(f"  ⏭️ Skipped story {story_id} after 3 failed attempts.")
+    
+    return {
+        "prd_stories": stories,
+        "active_story_ids": active_ids,
+        "skipped_story_ids": skipped,
+        "story_retries_count": 0,
+        "compile_retry_count": 0,
+        "compiler_errors": [],
+        "history": [f"Story {story_id} SKIPPED after max retries. Rolled back uncommitted changes."]
+    }
+
+def should_retry_story(state: AgentState) -> str:
+    """Per-story retry logic. Replaces the global should_retry."""
+    last_history = state.get("history", [""])[-1]
+    
+    # Build succeeded → commit this story
+    if "PASSED" in last_history:
+        return "story_commit"
+    
+    # Per-story retry limit using compile_retry_count
+    if state.get("compile_retry_count", 0) >= 3:
+        return "story_skip"
+    
+    # Retry: send back to coder with error context
+    return "coder"
+
+def should_continue_stories(state: AgentState) -> str:
+    """After story_selector picks a story, route based on whether there's work left."""
+    # Note: With Send API, the node itself handles routing to architect_coder.
+    # We just need to route to ui_check when NO stories are active and none were sent.
+    if state.get("active_story_ids"):
+        # This branch isn't really used since Send objects bypass conditional edges,
+        # but LangGraph requires a fallback path if we don't return Send objects.
+        return "architect_coder" 
+    return "ui_check"
 
 def build_graph(checkpointer=None):
     """Compiles the LangGraph State Machine."""
@@ -791,6 +988,11 @@ def build_graph(checkpointer=None):
     graph.add_node("planner", planner_node)
     graph.add_node("blueprint_presentation", blueprint_presentation_node)
     graph.add_node("blueprint_approval_gate", blueprint_approval_gate)
+    graph.add_node("prd_decomposer", prd_decomposer_node)
+    graph.add_node("story_selector", story_selector_node)
+    graph.add_node("story_commit", story_commit_node)
+    graph.add_node("story_progress", story_progress_node)
+    graph.add_node("story_skip", story_skip_node)
     graph.add_node("architect_coder", architect_coder_node)
     graph.add_node("validator", validator_node)
     graph.add_node("ui_vision_check", ui_vision_validator_node)        # Stage 1: Boot, build, capture initial screenshot
@@ -810,9 +1012,7 @@ def build_graph(checkpointer=None):
         push_msg = commit_and_push_branch(
             workspace_path, 
             branch_name, 
-            f"Agent Implementation for #{task_id}",
-            installation_id=installation_id,
-            repo_full_name=repo_full_name
+            f"Agent Implementation for #{task_id}"
         )
         
         # Notify developer based on the precise outcome
@@ -832,7 +1032,11 @@ def build_graph(checkpointer=None):
             comment += err_details
             comment += "\n\n💡 *Tip: You can reply directly to this comment (e.g. `Redo: use a VStack instead`) to revive this workflow and try again!*"
         else:
-            comment = f"✅ **Coding & Validation Complete!**\n\nThe background agents compiled the code successfully and the UI tests passed.\nAll logic and design tokens have been safely pushed to the remote branch `{branch_name}`.\n"
+            last_hist = state.get("history", [""])[-1]
+            if "UI Vision Check: FAILED" in last_hist:
+                comment = f"⚠️ **Partial Success (Code Pushed, Vision Failed)**\n\nThe background agents compiled the code successfully and the architecture modifications have been safely pushed to `{branch_name}`. However, the autonomous Maestro UI Validation failed or timed out:\n\n```text\n{last_hist}\n```\n\n*Please manually verify the visual logic below:*\n"
+            else:
+                comment = f"✅ **Coding & Validation Complete!**\n\nThe background agents compiled the code successfully and the UI tests passed.\nAll logic and design tokens have been safely pushed to the remote branch `{branch_name}`.\n"
             
             # Explicitly render identical visual context into the PR for humans!
             rendered_shot = state.get("screenshot_path")
@@ -847,13 +1051,27 @@ def build_graph(checkpointer=None):
                 
             comment += f"\n<details><summary><b>Git Push Receipt</b></summary>\n\n```text\n{push_msg}\n```\n</details>\n\n### 🚀 [Click here to quickly open a Pull Request!](https://github.com/{repo_full_name}/compare/{branch_name}?expand=1)"
         
-        if repo_full_name and installation_id:
-            post_github_comment(repo_full_name, task_id, installation_id, comment)
+        if task_id:
+            post_github_comment(task_id, comment)
             
         # Intelligent garbage collection:
         # If the push successfully merged to the cloud, there is no reason to hoard 300MB of local Xcode/SPM build caches.
         # But if it failed, we MUST leave it on disk for the human engineer to `cd` into and forensically investigate.
         if "ERROR" not in push_msg and "SKIPPED" not in push_msg:
+            # --- Ralph Integration: Write learnings to progress.txt + AGENTS.md ---
+            from agent.tools import write_progress_log
+            try:
+                write_progress_log(
+                    workspace_path, 
+                    task_id, 
+                    state.get("instructions", ""),
+                    state.get("blueprint", {}),
+                    state.get("history", [])
+                )
+                print("📝 Progress log and AGENTS.md updated with learnings.")
+            except Exception as e:
+                print(f"⚠️ Progress log write failed (non-fatal): {e}")
+
             import shutil
             import os
             try:
@@ -891,20 +1109,38 @@ def build_graph(checkpointer=None):
     # Dynamically route: either loop back to planner with feedback, or proceed to execution
     graph.add_conditional_edges("blueprint_approval_gate", should_proceed_from_blueprint, {
         "planner": "planner",
-        "architect_coder": "architect_coder"
+        "prd_decomposer": "prd_decomposer"
     })
     
-    # After architecture completes, validate the code
+    # --- Phase 3: Ralph Loop Edges ---
+    
+    # PRD decomposer feeds into story selector
+    graph.add_edge("prd_decomposer", "story_selector")
+    
+    # Story selector: either pick a story to work on, or all done → UI check
+    graph.add_conditional_edges("story_selector", should_continue_stories, {
+        "architect_coder": "architect_coder",
+        "ui_check": "ui_vision_check"
+    })
+    
+    # Coder → Validator
     graph.add_edge("architect_coder", "validator")
     
-    # Conditional logic out of the validator (loops back to architect_coder on failure)
-    graph.add_conditional_edges("validator", should_retry, {
-        "coder": "architect_coder",           # Loop back through OpenCode for targeted fixes
-        "ui_check": "ui_vision_check",         # Build passed → boot sim & capture initial screenshot
-        "push": "push"                        # Build perfectly failed multiple times → skip to halt
+    # Validator: per-story retry or commit
+    graph.add_conditional_edges("validator", should_retry_story, {
+        "coder": "architect_coder",
+        "story_commit": "story_commit",
+        "story_skip": "story_skip"
     })
     
-    # Pipeline: capture → navigate → validate → push
+    # After commit: log progress, then loop back to story selector
+    graph.add_edge("story_commit", "story_progress")
+    graph.add_edge("story_progress", "story_selector")
+    
+    # After skip: loop back to story selector for next story
+    graph.add_edge("story_skip", "story_selector")
+    
+    # --- Post-loop: UI Vision Pipeline ---
     graph.add_edge("ui_vision_check", "maestro_navigation_generator")
     graph.add_edge("maestro_navigation_generator", "vision_validation")
     
