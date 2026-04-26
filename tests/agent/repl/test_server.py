@@ -114,3 +114,16 @@ def test_websocket_legacy_protocol():
             assert chunk_events[0]["payload"]["text"] == "Hello"
 
             mock_bridge.add_user_message.assert_called_once_with("Hello")
+
+
+class TestGateManagerIntegration:
+    """GateManager is wired into the server."""
+
+    def test_gate_manager_exists(self):
+        from agent.repl.server import gate_manager
+        from agent.gate_manager import GateManager
+        assert isinstance(gate_manager, GateManager)
+
+    def test_gate_manager_shares_bus(self):
+        from agent.repl.server import bus, gate_manager
+        assert gate_manager._bus is bus

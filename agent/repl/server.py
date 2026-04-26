@@ -15,6 +15,7 @@ load_dotenv()
 from agent.event_bus import EventBus
 from agent.repl.ws_manager import WSManager
 from agent.repl.pipeline_runner import PipelineRunner
+from agent.gate_manager import GateManager
 
 # ------------------------------------------------------------------
 # Shared instances
@@ -24,6 +25,8 @@ ws_manager = WSManager(bus)
 ws_manager.start()
 pipeline_runner = PipelineRunner(bus)
 pipeline_runner.start()
+gate_manager = GateManager(bus=bus)
+gate_manager.start()
 
 app = FastAPI()
 
