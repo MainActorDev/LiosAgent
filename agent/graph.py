@@ -14,6 +14,8 @@ from agent.llm_factory import get_llm
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from agent.graph_events import GraphEventEmitter
+from agent.tool_output_parser import ToolOutputParser
+from agent.tool_events import ToolEventEmitter
 
 class FileModification(BaseModel):
     filepath: str = Field(description="Absolute path to the file.")
@@ -54,6 +56,9 @@ def _wrap_node_with_events(
             emitter.node_enter(run_id=run_id, node=node_name)
             t0 = time.monotonic()
             try:
+                # Inject event bus and run_id for tool event emission
+                state["_event_bus"] = emitter._bus if emitter else None
+                state["_run_id"] = run_id
                 result = await node_fn(state)
                 duration_ms = (time.monotonic() - t0) * 1000
                 emitter.node_exit(
@@ -75,6 +80,9 @@ def _wrap_node_with_events(
             emitter.node_enter(run_id=run_id, node=node_name)
             t0 = time.monotonic()
             try:
+                # Inject event bus and run_id for tool event emission
+                state["_event_bus"] = emitter._bus if emitter else None
+                state["_run_id"] = run_id
                 result = node_fn(state)
                 duration_ms = (time.monotonic() - t0) * 1000
                 emitter.node_exit(
@@ -498,11 +506,67 @@ After completing, ensure all acceptance criteria are met."""
         
         captured_output = []
         
+        # Initialize tool event parsing
+        _event_bus = state.get("_event_bus")
+        _run_id = state.get("_run_id", "")
+        tool_parser = ToolOutputParser(run_id=_run_id) if _run_id else None
+        tool_emitter = ToolEventEmitter(bus=_event_bus) if _event_bus else None
+        
         for line in iter(process.stdout.readline, ''):
             # Print natively bypassing python typical buffering
             sys.stdout.write(line)
             sys.stdout.flush()
             captured_output.append(line)
+            
+            # Parse and emit tool call events
+            if tool_parser and tool_emitter:
+                for tool_event in tool_parser.feed_line(line):
+                    if tool_event.event_type == "tool.start":
+                        tool_emitter.start(
+                            tool_call_id=tool_event.tool_call_id,
+                            run_id=tool_event.run_id,
+                            tool_name=tool_event.tool_name,
+                            input_data=tool_event.input_data,
+                            node="architect_coder",
+                        )
+                        # Emit file.write for Write tool calls
+                        if tool_event.tool_name == "Write":
+                            file_path = tool_event.input_data.get("filePath", "")
+                            content = tool_event.input_data.get("content", "")
+                            tool_emitter.file_write(
+                                tool_call_id=tool_event.tool_call_id,
+                                run_id=tool_event.run_id,
+                                path=file_path,
+                                diff=content,
+                                lines_added=content.count("\n") + 1 if content else 0,
+                                lines_removed=0,
+                                is_new_file=True,
+                            )
+                        # Emit file.read for Read tool calls
+                        elif tool_event.tool_name == "Read":
+                            file_path = tool_event.input_data.get("filePath", "")
+                            tool_emitter.file_read(
+                                tool_call_id=tool_event.tool_call_id,
+                                run_id=tool_event.run_id,
+                                path=file_path,
+                                lines=0,
+                            )
+                    elif tool_event.event_type == "tool.result":
+                        tool_emitter.result(
+                            tool_call_id=tool_event.tool_call_id,
+                            run_id=tool_event.run_id,
+                            tool_name=tool_event.tool_name,
+                            output_data=tool_event.output_data,
+                            duration_ms=tool_event.duration_ms,
+                        )
+                    elif tool_event.event_type == "tool.error":
+                        tool_emitter.error(
+                            tool_call_id=tool_event.tool_call_id,
+                            run_id=tool_event.run_id,
+                            tool_name=tool_event.tool_name,
+                            error=tool_event.error,
+                            node="architect_coder",
+                        )
             
         process.wait(timeout=1800) # 30 minute timeout for OpenCode runs
     except subprocess.TimeoutExpired:
