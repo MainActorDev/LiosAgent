@@ -129,12 +129,35 @@ export function usePipeline(bus, sendCommand) {
         }
     }
 
+    function onGateRequest(event) {
+        const payload = event.payload || event;
+        const nodeName = payload.node;
+        const node = nodes.value.find((n) => n.name === nodeName);
+        if (node) {
+            node.status = 'gated';
+            node.gateId = payload.gate_id;
+        }
+    }
+
+    function onGateResponse(event) {
+        const payload = event.payload || event;
+        const gateId = payload.gate_id;
+        const node = nodes.value.find((n) => n.gateId === gateId);
+        if (node) {
+            // Return to running — the graph will resume and node_exit will set final status
+            node.status = 'running';
+            delete node.gateId;
+        }
+    }
+
     // --- Subscribe to events ---
     bus.on('graph.start', onGraphStart);
     bus.on('graph.node_enter', onNodeEnter);
     bus.on('graph.node_exit', onNodeExit);
     bus.on('graph.end', onGraphEnd);
     bus.on('graph.error', onGraphError);
+    bus.on('gate.request', onGateRequest);
+    bus.on('gate.response', onGateResponse);
 
     // --- Actions ---
 
