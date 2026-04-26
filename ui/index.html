@@ -324,14 +324,127 @@
 
       </div>
 
-      <!-- Placeholder panels for future phases -->
-      <div class="terminal-body" v-show="activePanel === 'pipeline'" style="display:flex;align-items:center;justify-content:center;">
-        <div style="text-align:center;color:var(--text-muted);">
-          <svg style="width:48px;height:48px;margin-bottom:12px;opacity:0.3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-          </svg>
-          <div style="font-family:var(--font-sans);font-size:14px;">Pipeline Dashboard</div>
-          <div style="font-family:var(--font-sans);font-size:12px;margin-top:4px;">Coming in Phase 2</div>
+      <!-- ===== Pipeline Dashboard ===== -->
+      <div class="terminal-body" v-show="activePanel === 'pipeline'">
+        <div class="pipeline-dashboard">
+          <!-- Header -->
+          <div class="pipeline-header">
+            <h2>Pipeline Execution</h2>
+            <span :class="['pipeline-status-badge', pipeline.status.value]">
+              <span class="status-dot"></span>
+              {{ pipeline.status.value }}
+            </span>
+          </div>
+
+          <!-- Run Info (visible when running or completed) -->
+          <div class="pipeline-run-info" v-if="pipeline.status.value !== 'idle'">
+            <span class="run-task" :title="pipeline.task.value">
+              {{ pipeline.task.value || 'Untitled run' }}
+            </span>
+            <span class="run-duration">
+              {{ formatDuration(pipeline.totalDuration.value) }}
+            </span>
+          </div>
+
+          <!-- Summary Stats (visible when running or completed) -->
+          <div class="pipeline-summary" v-if="pipeline.status.value !== 'idle'">
+            <div class="summary-stat">
+              <div class="stat-value">{{ pipeline.completedCount.value }}</div>
+              <div class="stat-label">Completed</div>
+            </div>
+            <div class="summary-stat">
+              <div class="stat-value">{{ pipeline.totalNodes.value }}</div>
+              <div class="stat-label">Total Nodes</div>
+            </div>
+            <div class="summary-stat">
+              <div class="stat-value">{{ formatDuration(pipeline.totalDuration.value) }}</div>
+              <div class="stat-label">Duration</div>
+            </div>
+          </div>
+
+          <!-- Empty State -->
+          <div class="pipeline-empty" v-if="pipeline.status.value === 'idle' && pipeline.nodes.value.length === 0">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+            </svg>
+            <p>No pipeline running. Start one from the chat or use the button below.</p>
+          </div>
+
+          <!-- Node Timeline -->
+          <div class="pipeline-timeline" v-if="pipeline.nodes.value.length > 0">
+            <div
+              v-for="node in pipeline.nodes.value"
+              :key="node.name"
+              :class="['node-card', node.status]"
+            >
+              <div class="node-status-icon">
+                <div v-if="node.status === 'running'" class="spinner"></div>
+                <span v-else-if="node.status === 'completed'" class="check">&#10003;</span>
+                <span v-else-if="node.status === 'error'" class="error-x">&#10007;</span>
+                <div v-else class="pending-dot"></div>
+              </div>
+              <div class="node-info">
+                <div class="node-name">{{ node.name }}</div>
+                <div class="node-meta" v-if="node.status === 'completed' || node.status === 'error'">
+                  {{ formatDuration(node.duration_ms) }}
+                </div>
+                <div class="node-meta" v-else-if="node.status === 'running'">
+                  Running...
+                </div>
+                <div class="node-duration-bar"
+                     v-if="node.status !== 'pending'"
+                     :style="{ width: getNodeBarWidth(node) }">
+                </div>
+              </div>
+              <div class="node-duration" v-if="node.duration_ms > 0">
+                {{ formatDuration(node.duration_ms) }}
+              </div>
+            </div>
+          </div>
+
+          <!-- Controls -->
+          <div class="pipeline-controls">
+            <button
+              class="pipeline-btn"
+              @click="pipeline.startPipeline(pipelineInput)"
+              :disabled="pipeline.status.value === 'running'"
+            >
+              &#9654; Start Pipeline
+            </button>
+            <button
+              class="pipeline-btn cancel"
+              @click="pipeline.cancelPipeline()"
+              :disabled="pipeline.status.value !== 'running'"
+            >
+              &#9632; Cancel
+            </button>
+            <button
+              class="pipeline-btn"
+              @click="pipeline.reset()"
+              :disabled="pipeline.status.value === 'running'"
+              v-if="pipeline.status.value !== 'idle'"
+            >
+              &#8634; Reset
+            </button>
+          </div>
+
+          <!-- Run History -->
+          <div v-if="pipeline.history.value.length > 0" style="margin-top: var(--space-4, 16px);">
+            <h3 style="font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary, #94A3B8); margin: 0 0 8px 0; text-transform: uppercase; letter-spacing: 0.05em;">
+              Recent Runs
+            </h3>
+            <div v-for="run in pipeline.history.value" :key="run.runId"
+                 style="display: flex; align-items: center; gap: 12px; padding: 8px 12px; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted, #475569); border-bottom: 1px solid var(--border-subtle, rgba(148,163,184,0.1));">
+              <span :class="['pipeline-status-badge', run.status]" style="font-size: 10px; padding: 2px 6px;">
+                {{ run.status }}
+              </span>
+              <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                {{ run.task || 'Untitled' }}
+              </span>
+              <span>{{ run.nodeCount }} nodes</span>
+              <span>{{ formatDuration(run.totalDuration) }}</span>
+            </div>
+          </div>
         </div>
       </div>
 
