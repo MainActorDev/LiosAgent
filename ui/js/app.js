@@ -8,6 +8,7 @@ import { EventBus } from './event-bus.js';
 import { usePipeline } from './pipeline.js';
 import { useGates } from './gates.js';
 import { useTools } from './tools.js';
+import { useFiles } from './files.js';
 
 const { createApp, ref, onMounted, nextTick, computed } = Vue;
 
@@ -24,7 +25,7 @@ createApp({
     ]);
     const inputText = ref('');
     const conversations = ref([]);
-    const files = ref([]);
+
     const stats = ref({
       model: 'Unknown',
       inputTokens: 0,
@@ -161,6 +162,7 @@ createApp({
     const pipeline = usePipeline(bus, sendCommand);
     const gates = useGates(bus, sendCommand);
     const tools = useTools(bus);
+    const filesExplorer = useFiles(bus);
     const gateFeedback = Vue.ref('');
 
     // Format duration helper
@@ -225,7 +227,7 @@ createApp({
       inputText,
       sendMessage,
       conversations,
-      files,
+      filesExplorer,
       stats,
       activeTools,
       isThinking,
