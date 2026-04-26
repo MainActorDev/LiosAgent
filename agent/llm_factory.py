@@ -1,6 +1,10 @@
 import os
 from typing import Optional
 from langchain_core.language_models.chat_models import BaseChatModel
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 def get_llm(role: str = "default") -> BaseChatModel:
     """

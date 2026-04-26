@@ -2,18 +2,22 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 import os
 import asyncio
-from starlette.concurrency import run_in_threadpool
+from dotenv import load_dotenv
+import traceback
+import sys
+
+load_dotenv()
+
 from agent.repl.llm_bridge import LLMBridge
 
 app = FastAPI()
 
 @app.websocket("/ws/chat")
 async def websocket_endpoint(websocket: WebSocket):
+    print("WebSocket connected", flush=True)
     await websocket.accept()
-    # Create an LLMBridge per connection so conversation history isn't shared
     llm_agent = LLMBridge()
 
-    # Send initial stats
     await websocket.send_json({
         "type": "stats",
         "model": llm_agent.model_name,
@@ -27,37 +31,42 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             data = await websocket.receive_json()
             user_text = data.get("text", "")
+            print(f"Received user text: {user_text}", flush=True)
 
             llm_agent.add_user_message(user_text)
 
-            # We use an asyncio queue to pass events from the worker thread to the async event loop
-            # so we can stream them to the websocket in real-time without blocking the event loop.
-            loop = asyncio.get_running_loop()
-            queue = asyncio.Queue()
+            try:
+                # The issue is the ChatOpenAI initialized inside the thread
+                # Langchain initializes HTTP clients and expects to be in the same thread/loop
+                print("Getting response from LLM...", flush=True)
+                
+                # Get the full stream but run it in an executor properly
+                def _get_stream():
+                    print("Executing LLM request...", flush=True)
+                    result = []
+                    for chunk in llm_agent.stream():
+                        result.append(chunk)
+                    return result
+                
+                # Use default executor
+                loop = asyncio.get_running_loop()
+                chunks = await loop.run_in_executor(None, _get_stream)
+                
+                for chunk in chunks:
+                    response_data = {
+                        "text": str(chunk),
+                        "type": "chunk"
+                    }
+                    print(f"Sending chunk: {response_data}", flush=True)
+                    await websocket.send_json(response_data)
+                
+                print("Finished sending all chunks", flush=True)
 
-            def _run_stream():
-                try:
-                    for event in llm_agent.stream():
-                        loop.call_soon_threadsafe(queue.put_nowait, event)
-                finally:
-                    # Send a sentinel value to indicate completion
-                    loop.call_soon_threadsafe(queue.put_nowait, None)
+            except Exception as stream_err:
+                print(f"Error during stream: {stream_err}", flush=True)
+                traceback.print_exc()
+                await websocket.send_json({"text": f"Error: {stream_err}", "type": "chunk"})
 
-            # Start the blocking stream in a background thread
-            asyncio.create_task(asyncio.to_thread(_run_stream))
-
-            # Consume from the queue asynchronously
-            while True:
-                event = await queue.get()
-                if event is None:
-                    break
-                response_data = {
-                    "text": str(event),
-                    "type": "chunk"
-                }
-                await websocket.send_json(response_data)
-
-            # Stream finished, send updated stats
             await websocket.send_json({
                 "type": "stats",
                 "model": llm_agent.model_name,
@@ -68,8 +77,10 @@ async def websocket_endpoint(websocket: WebSocket):
             })
 
     except WebSocketDisconnect:
-        pass
+        print("WebSocket disconnected", flush=True)
+    except Exception as e:
+        print(f"Unexpected WS error: {e}", flush=True)
+        traceback.print_exc()
 
 ui_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "ui")
 app.mount("/", StaticFiles(directory=ui_dir, html=True), name="ui")
-
