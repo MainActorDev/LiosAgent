@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="/css/layout.css" />
   <link rel="stylesheet" href="/css/chat.css" />
   <link rel="stylesheet" href="/css/pipeline.css" />
+  <link rel="stylesheet" href="/css/gates.css" />
 
   <!-- Vue 3 CDN -->
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
@@ -398,6 +399,53 @@
               </div>
               <div class="node-duration" v-if="node.duration_ms > 0">
                 {{ formatDuration(node.duration_ms) }}
+              </div>
+            </div>
+          </div>
+
+          <!-- Gate Approval Dialog -->
+          <div class="gate-overlay" v-if="gates.hasActiveGate.value">
+            <div class="gate-dialog">
+              <div class="gate-dialog-header">
+                <div class="gate-dialog-icon">
+                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                    <path d="M10 1.667A3.333 3.333 0 0 0 6.667 5v3.333H5A1.667 1.667 0 0 0 3.333 10v6.667A1.667 1.667 0 0 0 5 18.333h10a1.667 1.667 0 0 0 1.667-1.666V10A1.667 1.667 0 0 0 15 8.333h-1.667V5A3.333 3.333 0 0 0 10 1.667Zm0 1.666A1.667 1.667 0 0 1 11.667 5v3.333H8.333V5A1.667 1.667 0 0 1 10 3.333Z" fill="currentColor"/>
+                  </svg>
+                </div>
+                <div class="gate-dialog-title">{{ gates.currentGate.value.title }}</div>
+                <div class="gate-dialog-node">{{ gates.currentGate.value.node }}</div>
+              </div>
+              <div class="gate-dialog-body">
+                <p class="gate-dialog-description">{{ gates.currentGate.value.description }}</p>
+                <div class="gate-dialog-context" v-if="Object.keys(gates.currentGate.value.context).length > 0">
+                  <div class="gate-context-item" v-for="(value, key) in gates.currentGate.value.context" :key="key">
+                    <span class="gate-context-key">{{ key }}:</span>
+                    <span class="gate-context-value">{{ value }}</span>
+                  </div>
+                </div>
+                <textarea
+                  class="gate-feedback-input"
+                  v-model="gateFeedback"
+                  placeholder="Optional feedback..."
+                  rows="3"
+                ></textarea>
+              </div>
+              <div class="gate-dialog-actions">
+                <button
+                  class="gate-btn gate-btn-reject"
+                  @click="gates.rejectGate(gates.currentGate.value.gate_id, gateFeedback); gateFeedback = '';"
+                >
+                  Reject
+                </button>
+                <button
+                  class="gate-btn gate-btn-approve"
+                  @click="gates.approveGate(gates.currentGate.value.gate_id, gateFeedback); gateFeedback = '';"
+                >
+                  Approve
+                </button>
+              </div>
+              <div class="gate-queue-indicator" v-if="gates.pendingGates.value.length > 1">
+                {{ gates.pendingGates.value.length - 1 }} more gate{{ gates.pendingGates.value.length > 2 ? 's' : '' }} pending
               </div>
             </div>
           </div>

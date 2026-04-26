@@ -159,6 +159,7 @@ createApp({
 
     const pipeline = usePipeline(bus, sendCommand);
     const gates = useGates(bus, sendCommand);
+    const gateFeedback = Vue.ref('');
 
     // Format duration helper
     function formatDuration(ms) {
@@ -233,6 +234,7 @@ createApp({
       toggleSidebar,
       pipeline,
       gates,
+      gateFeedback,
       pipelineInput,
       formatDuration,
       getNodeBarWidth,
