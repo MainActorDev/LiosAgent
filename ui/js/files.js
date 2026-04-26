@@ -234,7 +234,11 @@ export function useFiles(bus) {
 
     const existing = fileMap.value[path];
     const name = path.split('/').pop();
-    const status = payload.is_new_file ? 'new' : 'modified';
+    const status = payload.is_new_file
+      ? 'new'
+      : existing && existing.status === 'new'
+        ? 'new'
+        : 'modified';
 
     if (existing) {
       const diffs = [...existing.diffs];
